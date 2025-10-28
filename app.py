@@ -2,6 +2,7 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import os
+import google.generativeai as genai
 from main import (
     fetch_and_store_apps,
     patch_app_info_localization,
@@ -10,8 +11,20 @@ from main import (
     fetch_app_info_localizations,
     fetch_app_store_versions,
     fetch_app_store_version_localizations,
-    fetch_and_store_single_app
+    fetch_and_store_single_app,
 )
+
+# -------------------------------
+# Gemini AI Setup
+# -------------------------------
+GEMINI_API_KEY = "AIzaSyCoIwS0zRQ0CTl4WY8et_QDTOUrIIuB3iA"
+gemini_model = None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel(
+        'gemini-2.5-flash-lite',
+        generation_config={"temperature": 0.0}  # No creativity
+    )
 
 # -------------------------------
 # Database Connection
@@ -337,6 +350,20 @@ def get_locales(app_id, store_id):
     return df['locale'].tolist()
 
 # -------------------------------
+# Translate with Gemini
+# -------------------------------
+def translate_text(text, locale):
+    if not gemini_model or not text.strip():
+        return text
+    try:
+        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text without any additional commentary."
+        response = gemini_model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        st.error(f"Failed: {locale}")
+        return text
+    
+# -------------------------------
 # Main Dashboard
 # -------------------------------
 def main():
@@ -510,40 +537,97 @@ def main():
                 st.markdown(f"#### ✏️ Editing {selected_attribute.capitalize()} for {platform or 'App Info'}")
                 # Dictionary to store changes
                 changes = {}
+                # === Get only existing locales for this attribute ===
+                all_locales = attr_data['locale'].tolist()
+
+                # === Hidden: Get en-US current value (if exists) ===
+                en_row = attr_data[attr_data['locale'] == 'en-US']
+                en_current = ""
+                if not en_row.empty:
+                    val = en_row.iloc[0][selected_attribute]
+                    en_current = val if pd.notna(val) else ""
+
+                # === SIMPLE: One empty field + Translate button ===
+                col_field, col_btn = st.columns([5, 1])
+                with col_field:
+                    source_text = st.text_area(
+                        "", 
+                        value=en_current, 
+                        height=100,
+                        key=f"source_{selected_attribute}",
+                        placeholder="Yahan text likhein aur Translate dabayein"
+                    )
+                with col_btn:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("Translate", key=f"btn_trans_{selected_attribute}"):
+                        if not source_text.strip():
+                            st.error("Text likhein!")
+                        elif not gemini_model:
+                            st.error("Gemini nahi chal raha")
+                        else:
+                            with st.spinner("Translating..."):
+                                for locale in all_locales:
+                                    if locale == 'en-US':
+                                        translated = source_text
+                                    else:
+                                        translated = translate_text(source_text, locale)
+                                    st.session_state[f"auto_{selected_attribute}_{locale}"] = translated
+                            st.success("Translated!")
+                            st.rerun()
+
+                st.markdown("---")
+
+                # === Show all existing fields (auto-filled) ===
+                changes = {}
                 for _, row in attr_data.iterrows():
                     loc_id = row['localization_id']
                     locale = row['locale']
-                    value = row[selected_attribute] if row[selected_attribute] is not None else ''
-                    st.markdown(f"**Locale: {locale}**")
+                    db_val = row[selected_attribute] if pd.notna(row[selected_attribute]) else ""
+
+                    # Auto-fill from translation
+                    fill_key = f"auto_{selected_attribute}_{locale}"
+                    display_val = st.session_state.get(fill_key, db_val)
+
+                    st.markdown(f"**{locale}**")
+                    if selected_attribute in ['description', 'keywords', 'promotional_text', 'whats_new']:
+                        new_val = st.text_area(f"{locale}", value=display_val, key=f"edit_{loc_id}", height=100)
+                    else:
+                        new_val = st.text_input(f"{locale}", value=display_val, key=f"edit_{loc_id}")
+                    
+                    changes[loc_id] = new_val
+                    st.markdown("---")
                     # Use text_area for multi-line attributes, text_input for others
                     if selected_attribute in ['description', 'keywords', 'promotional_text', 'whats_new']:
-                        new_value = st.text_area(f"{selected_attribute} ({locale})", value=value, key=f"{selected_attribute}_{loc_id}_{locale}")
+                        new_value = st.text_area(f"{selected_attribute} ({locale})", value=new_val, key=f"{selected_attribute}_{loc_id}_{locale}")
                         st.markdown("---")
                     else:
-                        new_value = st.text_input(f"{selected_attribute} ({locale})", value=value, key=f"{selected_attribute}_{loc_id}_{locale}")
+                        new_value = st.text_input(f"{selected_attribute} ({locale})", value=new_val, key=f"{selected_attribute}_{loc_id}_{locale}")
                         st.markdown("---")
                     changes[loc_id] = new_value
-
+                
                 # Save Changes Button
                 if st.button("Save Changes", key=f"save_{selected_attribute}"):
                     success = True
                     for loc_id, new_value in changes.items():
-                        new_value = None if new_value == '' else new_value
-                        # Update API
+                        new_value = None if new_value == "" else new_value
                         if table == 'app_info_localizations':
                             if not patch_app_info_localization(loc_id, {selected_attribute: new_value}, issuer_id, key_id, private_key):
                                 success = False
                         else:
                             if not patch_app_store_version_localization(loc_id, {selected_attribute: new_value}, issuer_id, key_id, private_key):
                                 success = False
-                        # Update DB if API call is successful
                         if success:
                             update_db_attribute(table, loc_id, selected_attribute, new_value, selected_store_id)
                     if success:
-                        st.success(f"{selected_attribute.capitalize()} updated successfully!")
+                        st.success("Saved!")
+                        # Clear auto-fill
+                        for loc in all_locales:
+                            key = f"auto_{selected_attribute}_{loc}"
+                            if key in st.session_state:
+                                del st.session_state[key]
                         st.rerun()
                     else:
-                        st.error(f"Failed to update {selected_attribute} in Apple API.")
+                        st.error("Save failed.")
 
 if __name__ == "__main__":
     main()
