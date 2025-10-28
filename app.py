@@ -1,3 +1,4 @@
+import time
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -101,7 +102,7 @@ def initialize_database():
     """)
     conn.commit()
     conn.close()
-    st.info("Database initialized!")
+    st.success("Database initialized successfully!")
 
 # -------------------------------
 # Reset Database
@@ -112,7 +113,7 @@ def reset_database():
         os.remove(db_path)
         st.info("Existing database deleted.")
     initialize_database()
-    st.success("New database created!")
+    st.success("New database created successfully!")
 
 # -------------------------------
 # Check Database Existence
@@ -215,7 +216,7 @@ def delete_store(store_id):
     cursor.execute("DELETE FROM stores WHERE store_id = ?", (store_id,))
     conn.commit()
     conn.close()
-    st.sidebar.success(f"Store ID {store_id} deleted!")
+    st.sidebar.success(f"Store ID {store_id} deleted successfully!")
 
 # -------------------------------
 # Update Database Attribute
@@ -360,7 +361,8 @@ def translate_text(text, locale):
         response = gemini_model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        st.error(f"Failed: {locale}")
+        error_detail = f"Translation failed for {locale}: {str(e)}"
+        st.error(error_detail)
         return text
     
 # -------------------------------
@@ -389,14 +391,14 @@ def main():
                         with st.spinner(f"Fetching data for {name}..."):
                             success = fetch_and_store_apps(store_id, issuer_id, key_id, private_key)
                             if success:
-                                st.sidebar.success(f"Store {name} added and data fetched!")
+                                st.sidebar.success(f"Store '{name}' added and data fetched successfully!")
                             else:
-                                st.sidebar.error(f"Store {name} added but failed to fetch data!")
+                                st.sidebar.error(f"Store '{name}' added, but failed to fetch data. Check console for request errors.")
                         st.rerun()
                     else:
-                        st.sidebar.error("Failed to add store!")
+                        st.sidebar.error("Failed to add store to database.")
                 except Exception as e:
-                    st.sidebar.error(f"Failed to add store: {e}")
+                    st.sidebar.error(f"Failed to add store: {str(e)}")
             else:
                 st.sidebar.error("Please fill all fields!")
 
@@ -412,10 +414,10 @@ def main():
             st.session_state['pending_store_delete'] = selected_store_name
 
         if st.session_state.get('pending_store_delete') == selected_store_name:
-            st.sidebar.warning(f"Delete store '{selected_store_name}'?")
+            st.sidebar.warning(f"Are you sure you want to delete store '{selected_store_name}'?")
             col1, col2 = st.sidebar.columns(2)
             with col1:
-                if st.button("OK", key=f"confirm_delete_{selected_store_id}"):
+                if st.button("Confirm", key=f"confirm_delete_{selected_store_id}"):
                     delete_store(selected_store_id)
                     st.rerun()
             with col2:
@@ -426,13 +428,13 @@ def main():
         # Fetch Data Button
         issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
         if issuer_id:
-            if st.sidebar.button("Fetch Data for Store"):
+            if st.sidebar.button("🔄 Fetch Data for Store"):
                 with st.spinner(f"Fetching data for {selected_store_name}..."):
                     success = fetch_and_store_apps(selected_store_id, issuer_id, key_id, private_key)
                     if success:
-                        st.sidebar.success(f"Data fetched for {selected_store_name}!")
+                        st.sidebar.success(f"Data fetched successfully for '{selected_store_name}'!")
                     else:
-                        st.sidebar.error(f"Failed to fetch data for {selected_store_name}.")
+                        st.sidebar.error(f"Failed to fetch data for '{selected_store_name}'. Check console for detailed request errors.")
                     st.rerun()
 
     if stores_df.empty:
@@ -451,7 +453,7 @@ def main():
     with st.spinner(f"Loading {selected_app_name}..."):
         app_data = load_app_data(selected_app_id, selected_store_id)
         if app_data is None:
-            st.error("App data not found!")
+            st.error("App data not found in local database!")
             return
 
         issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
@@ -466,16 +468,16 @@ def main():
     with col_title:
         st.markdown(f"### {selected_app_name}")
     with col_btn:
-        if st.button("Refresh", help="Re-fetch **only** this app from App Store Connect"):
+        if st.button("🔄 Refresh", help="Re-fetch **only** this app from App Store Connect"):
             with st.spinner(f"Refreshing {selected_app_name}…"):
                 success = fetch_and_store_single_app(
                     selected_app_id, selected_store_id,
                     issuer_id, key_id, private_key
                 )
                 if success:
-                    st.success(f"{selected_app_name} refreshed!")
+                    st.success(f"'{selected_app_name}' refreshed successfully!")
                 else:
-                    st.error("Refresh failed – see console.")
+                    st.error(f"Refresh failed for '{selected_app_name}'. Check console for detailed request errors (e.g., API response).")
             st.rerun()          # force page reload → fresh tables
     st.caption(f"App ID: `{selected_app_id}`")
 
@@ -508,14 +510,15 @@ def main():
             with col_sync:
                 if st.button("🔄", key=f"sync_{attr}", help=f"Sync {attr.capitalize()} from App Store Connect"):
                     with st.spinner(f"Syncing {attr.capitalize()}..."):
+                        platform_for_sync = st.session_state.get('platform', None) if attr in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new'] else None
                         success = sync_attribute_data(
                             attr, selected_app_id, selected_store_id, issuer_id, key_id, private_key,
-                            platform=st.session_state.get('platform', None) if attr in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new'] else None
+                            platform=platform_for_sync
                         )
                         if success:
                             st.success(f"{attr.capitalize()} synced successfully!")
                         else:
-                            st.error(f"Failed to sync {attr.capitalize()}.")
+                            st.error(f"Failed to sync {attr.capitalize()}. Check console for detailed request errors (e.g., API response body).")
                         st.rerun()
 
     with col_right:
@@ -551,33 +554,43 @@ def main():
                 col_field, col_btn = st.columns([5, 1])
                 with col_field:
                     source_text = st.text_area(
-                        "", 
-                        value=en_current, 
+                        label="Source Text (en-US)",
+                        value=en_current,
                         height=100,
                         key=f"source_{selected_attribute}",
-                        placeholder="Yahan text likhein aur Translate dabayein"
+                        placeholder="Enter text here and click Translate",
+                        label_visibility="collapsed"
                     )
                 with col_btn:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("Translate", key=f"btn_trans_{selected_attribute}"):
                         if not source_text.strip():
-                            st.error("Text likhein!")
+                            st.error("Please enter source text!")
                         elif not gemini_model:
-                            st.error("Gemini nahi chal raha")
+                            st.error("Gemini model is not available.")
                         else:
                             with st.spinner("Translating..."):
+                                translation_success = True
                                 for locale in all_locales:
                                     if locale == 'en-US':
                                         translated = source_text
                                     else:
                                         translated = translate_text(source_text, locale)
+                                        # Small delay between requests
+                                        time.sleep(0.6)
+                                        if translated == source_text:  # Assuming failure if unchanged
+                                            translation_success = False
                                     st.session_state[f"auto_{selected_attribute}_{locale}"] = translated
-                            st.success("Translated!")
+                                if translation_success:
+                                    st.success("All translations completed!")
+                                else:
+                                    st.error("Some translations failed. See individual locale errors above.")
                             st.rerun()
 
                 st.markdown("---")
 
                 # === Show all existing fields (auto-filled) ===
+                                # === Show all existing fields (auto-filled) ===
                 changes = {}
                 for _, row in attr_data.iterrows():
                     loc_id = row['localization_id']
@@ -590,36 +603,39 @@ def main():
 
                     st.markdown(f"**{locale}**")
                     if selected_attribute in ['description', 'keywords', 'promotional_text', 'whats_new']:
-                        new_val = st.text_area(f"{locale}", value=display_val, key=f"edit_{loc_id}", height=100)
+                        new_val = st.text_area(
+                            label=f"{locale} {selected_attribute}",
+                            value=display_val,
+                            key=f"edit_{loc_id}",
+                            height=100,
+                            label_visibility="collapsed"  # Hides label but satisfies accessibility
+                        )
                     else:
-                        new_val = st.text_input(f"{locale}", value=display_val, key=f"edit_{loc_id}")
+                        new_val = st.text_input(
+                            label=f"{locale} {selected_attribute}",
+                            value=display_val,
+                            key=f"edit_{loc_id}",
+                            label_visibility="collapsed"
+                        )
                     
                     changes[loc_id] = new_val
                     st.markdown("---")
-                    # Use text_area for multi-line attributes, text_input for others
-                    if selected_attribute in ['description', 'keywords', 'promotional_text', 'whats_new']:
-                        new_value = st.text_area(f"{selected_attribute} ({locale})", value=new_val, key=f"{selected_attribute}_{loc_id}_{locale}")
-                        st.markdown("---")
-                    else:
-                        new_value = st.text_input(f"{selected_attribute} ({locale})", value=new_val, key=f"{selected_attribute}_{loc_id}_{locale}")
-                        st.markdown("---")
-                    changes[loc_id] = new_value
                 
                 # Save Changes Button
-                if st.button("Save Changes", key=f"save_{selected_attribute}"):
-                    success = True
-                    for loc_id, new_value in changes.items():
-                        new_value = None if new_value == "" else new_value
-                        if table == 'app_info_localizations':
-                            if not patch_app_info_localization(loc_id, {selected_attribute: new_value}, issuer_id, key_id, private_key):
-                                success = False
-                        else:
-                            if not patch_app_store_version_localization(loc_id, {selected_attribute: new_value}, issuer_id, key_id, private_key):
-                                success = False
-                        if success:
-                            update_db_attribute(table, loc_id, selected_attribute, new_value, selected_store_id)
-                    if success:
-                        st.success("Saved!")
+                if st.button("💾 Save Changes", key=f"save_{selected_attribute}"):
+                    patch_success = True
+                    patch_errors = []
+                    with st.spinner("Saving changes to App Store Connect..."):
+                        for loc_id, new_value in changes.items():
+                            new_value = None if new_value == "" else new_value
+                            patch_func = patch_app_info_localization if table == 'app_info_localizations' else patch_app_store_version_localization
+                            if not patch_func(loc_id, {selected_attribute: new_value}, issuer_id, key_id, private_key):
+                                patch_success = False
+                                patch_errors.append(f"Locale ID {loc_id}")
+                            else:
+                                update_db_attribute(table, loc_id, selected_attribute, new_value, selected_store_id)
+                    if patch_success:
+                        st.success("All changes saved successfully to App Store Connect and local DB!")
                         # Clear auto-fill
                         for loc in all_locales:
                             key = f"auto_{selected_attribute}_{loc}"
@@ -627,7 +643,8 @@ def main():
                                 del st.session_state[key]
                         st.rerun()
                     else:
-                        st.error("Save failed.")
+                        error_msg = f"Failed to save for {len(patch_errors)} locale(s): {', '.join(patch_errors)}. Check console for detailed API response errors."
+                        st.error(error_msg)
 
 if __name__ == "__main__":
     main()
