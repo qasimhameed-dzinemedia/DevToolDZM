@@ -4,10 +4,10 @@ import jwt
 import time
 import contextlib
 
+import streamlit as st
 import requests
 import base64
 import os
-import streamlit as st
 
 def load_db_from_github():
     """Downloads the latest database file from GitHub repo."""
@@ -20,15 +20,25 @@ def load_db_from_github():
     res = requests.get(api_url, headers=headers)
 
     if res.status_code == 200:
-        import base64
-        content = base64.b64decode(res.json()["content"])
-        with open(db_path, "wb") as f:
-            f.write(content)
-        print("✅ Loaded latest database from GitHub.")
+        data = res.json()
+        download_url = data.get("download_url")
+
+        if download_url:
+            # ✅ Safest way: download raw binary directly
+            file_data = requests.get(download_url)
+            with open(db_path, "wb") as f:
+                f.write(file_data.content)
+            print(f"✅ Loaded latest database ({len(file_data.content)} bytes) from GitHub.")
+        else:
+            # fallback if no download_url provided
+            content = base64.b64decode(data["content"])
+            with open(db_path, "wb") as f:
+                f.write(content)
+            print("✅ Loaded DB via Base64 fallback.")
     else:
         print(f"⚠️ Could not load DB from GitHub: {res.text}")
 
-load_db_from_github()
+
 
 def sync_db_to_github():
     """Uploads or updates the latest database file to GitHub repo."""
@@ -41,6 +51,11 @@ def sync_db_to_github():
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json"
     }
+
+    # 🧠 Safety check: don't push if DB file is empty or missing
+    if not os.path.exists(db_path) or os.path.getsize(db_path) < 1000:
+        print(f"⚠️ Database file '{db_path}' seems empty or missing — skipping GitHub sync.")
+        return
 
     with open(db_path, "rb") as f:
         content = base64.b64encode(f.read()).decode()
@@ -59,7 +74,6 @@ def sync_db_to_github():
         "content": content,
         "branch": "main"
     }
-
     if sha:
         data["sha"] = sha
 
@@ -68,10 +82,14 @@ def sync_db_to_github():
         print("✅ Database synced to GitHub successfully!")
     else:
         print("❌ Failed to sync DB:", res.text)
-import streamlit as st
-print(st.secrets["REPO"])
-print(st.secrets["DB_PATH"])
-print(st.secrets["GITHUB_TOKEN"])
+
+
+
+# 🔍 Debug check (you can remove later)
+print("Repo:", st.secrets["REPO"])
+print("DB Path:", st.secrets["DB_PATH"])
+print("GitHub Token starts with:", st.secrets["GITHUB_TOKEN"][:8], "...")
+
 
 # -------------------------------
 # Configuration
