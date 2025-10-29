@@ -68,6 +68,9 @@ def sync_db_to_github():
         print("✅ Database synced to GitHub successfully!")
     else:
         print("❌ Failed to sync DB:", res.text)
+import streamlit as st
+print(st.secrets["REPO"])
+print(st.secrets["DB_PATH"])
 
 # -------------------------------
 # Configuration
