@@ -4,6 +4,58 @@ import jwt
 import time
 import contextlib
 
+import requests
+import base64
+import os
+import streamlit as st
+
+def load_db_from_github():
+    """Downloads the latest database file from GitHub repo."""
+    token = st.secrets["GITHUB_TOKEN"]
+    repo = st.secrets["REPO"]
+    db_path = st.secrets["DB_PATH"]
+    api_url = f"https://api.github.com/repos/{repo}/contents/{db_path}"
+
+    headers = {"Authorization": f"token {token}"}
+    res = requests.get(api_url, headers=headers)
+
+    if res.status_code == 200:
+        import base64
+        content = base64.b64decode(res.json()["content"])
+        with open(db_path, "wb") as f:
+            f.write(content)
+        print("✅ Loaded latest database from GitHub.")
+    else:
+        print(f"⚠️ Could not load DB from GitHub: {res.text}")
+
+load_db_from_github()
+
+def sync_db_to_github():
+    """Uploads the latest database file to GitHub repo."""
+    token = st.secrets["GITHUB_TOKEN"]
+    repo = st.secrets["REPO"]
+    db_path = st.secrets["DB_PATH"]
+    api_url = f"https://api.github.com/repos/{repo}/contents/{db_path}"
+
+    with open(db_path, "rb") as f:
+        content = base64.b64encode(f.read()).decode()
+
+    headers = {"Authorization": f"token {token}"}
+    get_res = requests.get(api_url, headers=headers)
+    sha = get_res.json().get("sha")
+
+    data = {
+        "message": "Auto-sync database update",
+        "content": content,
+        "sha": sha
+    }
+
+    res = requests.put(api_url, headers=headers, json=data)
+    if res.status_code in [200, 201]:
+        print("✅ Database synced to GitHub successfully!")
+    else:
+        print("❌ Failed to sync DB:", res.text)
+
 # -------------------------------
 # Configuration
 # -------------------------------
@@ -344,6 +396,9 @@ def process_app(app, store_id, issuer_id, key_id, private_key):
         print(f"No app store versions with PREPARE_FOR_SUBMISSION found for app ID {app_id}.")
     
     print(f"Completed fetch for app: {app_name} (ID: {app_id})")
+
+    sync_db_to_github()
+
     return app_id, True
 
 # -------------------------------------------------
@@ -371,6 +426,9 @@ def fetch_and_store_single_app(app_id, store_id, issuer_id, key_id, private_key)
         _, success = process_app(dummy_app, store_id, issuer_id, key_id, private_key)
         if success:
             print(f"[SYNC SINGLE] App {app_name} refreshed successfully.")
+            
+            sync_db_to_github()
+
         else:
             print(f"[SYNC SINGLE] Failed to refresh app {app_name}.")
         return success
@@ -402,6 +460,9 @@ def fetch_and_store_apps(store_id, issuer_id, key_id, private_key):
             print(f"Error processing app ID {app.get('id')}: {e}")
     
     print(f"Successfully fetched and stored {success_count}/{len(apps)} apps for store_id {store_id}.")
+
+    sync_db_to_github()
+
     return success_count > 0
 
 if __name__ == "__main__":

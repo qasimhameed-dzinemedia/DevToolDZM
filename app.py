@@ -13,6 +13,7 @@ from main import (
     fetch_app_store_versions,
     fetch_app_store_version_localizations,
     fetch_and_store_single_app,
+    sync_db_to_github
 )
 
 # -------------------------------
@@ -394,6 +395,7 @@ def main():
                                 st.sidebar.success(f"Store '{name}' added and data fetched successfully!")
                             else:
                                 st.sidebar.error(f"Store '{name}' added, but failed to fetch data. Check console for request errors.")
+                        sync_db_to_github()
                         st.rerun()
                     else:
                         st.sidebar.error("Failed to add store to database.")
@@ -435,6 +437,7 @@ def main():
                         st.sidebar.success(f"Data fetched successfully for '{selected_store_name}'!")
                     else:
                         st.sidebar.error(f"Failed to fetch data for '{selected_store_name}'. Check console for detailed request errors.")
+                    sync_db_to_github()
                     st.rerun()
 
     if stores_df.empty:
@@ -636,6 +639,7 @@ def main():
                                 update_db_attribute(table, loc_id, selected_attribute, new_value, selected_store_id)
                     if patch_success:
                         st.success("All changes saved successfully to App Store Connect and local DB!")
+                        sync_db_to_github()
                         # Clear auto-fill
                         for loc in all_locales:
                             key = f"auto_{selected_attribute}_{loc}"
