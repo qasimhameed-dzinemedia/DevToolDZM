@@ -641,7 +641,7 @@ def main():
             if st.button("🖼️ Screenshots", key="attr_screenshots"):
                 st.session_state['selected_attribute'] = 'screenshots'
         with col_sync:
-            if st.button("Sync", key="sync_screenshots", help="Refresh screenshots from App Store"):
+            if st.button("🔄", key="sync_screenshots", help="Refresh screenshots from App Store"):
                 with st.spinner("Syncing screenshots..."):
                     if sync_attribute_data('screenshots', selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform=st.session_state.get('platform')):
                         st.success("Screenshots synced!")
