@@ -71,6 +71,7 @@ def sync_db_to_github():
 import streamlit as st
 print(st.secrets["REPO"])
 print(st.secrets["DB_PATH"])
+print(st.secrets["GITHUB_TOKEN"])
 
 # -------------------------------
 # Configuration
