@@ -3,9 +3,8 @@ import requests
 import jwt
 import time
 import contextlib
-
+from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
-import requests
 import base64
 import os
 
@@ -316,6 +315,187 @@ def patch_app_store_version_localization(localization_id, attributes, issuer_id,
     return result is not None
 
 # -------------------------------
+# Patch App Store Version Localization
+# -------------------------------
+def patch_app_store_version_localization(localization_id, attributes, issuer_id, key_id, private_key):
+    attr = list(attributes.keys())[0] if attributes else "unknown"
+    print(f"PATCH App-Info – attribute '{attr}'")
+    token = generate_jwt(issuer_id, key_id, private_key)
+    if not token:
+        print(f"Failed to generate JWT for patching app store version localization ID {localization_id}.")
+        return False
+    url = f"{BASE_URL}/appStoreVersionLocalizations/{localization_id}"
+    # Convert attribute names to camelCase
+    mapped_attributes = {ATTRIBUTE_MAPPING.get(k, k): v for k, v in attributes.items() if v is not None}
+    payload = {
+        "data": {
+            "type": "appStoreVersionLocalizations",
+            "id": localization_id,
+            "attributes": mapped_attributes
+        }
+    }
+    result = patch(url, token, payload)
+    return result is not None
+
+# -------------------------------
+# NEW: Fetch Screenshots (Reusable)
+# -------------------------------
+def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
+    """
+    Fetch all screenshots from PREPARE_FOR_SUBMISSION versions.
+    Returns list of dicts.
+    """
+    print(f"[Screenshots] Fetching for app {app_id}...")
+    token = generate_jwt(issuer_id, key_id, private_key)
+    if not token:
+        return []
+
+    # Get PREPARE_FOR_SUBMISSION versions
+    versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
+    if not versions_data or 'data' not in versions_data:
+        return []
+
+    all_screenshots = []
+
+    def process_localization(loc, platform):
+        locale = loc['attributes']['locale']
+        sets_url = loc['relationships']['appScreenshotSets']['links']['related']
+        sets_data = get(sets_url, token)
+        if not sets_data or 'data' not in sets_data:
+            return []
+
+        locale_shots = []
+        for sset in sets_data['data']:
+            disp = sset['attributes']['screenshotDisplayType']
+            shots_url = sset['relationships']['appScreenshots']['links']['related']
+            shots_data = get(shots_url, token)
+            if not shots_data or 'data' not in shots_data:
+                continue
+            for shot in shots_data['data']:
+                asset = shot['attributes']['imageAsset']
+                url = asset['templateUrl'].format(w=asset['width'], h=asset['height'], f='jpg')
+                locale_shots.append({
+                    'localization_id': loc['id'],
+                    'locale': locale,
+                    'display_type': disp,
+                    'url': url,
+                    'width': asset['width'],
+                    'height': asset['height'],
+                    'platform': platform
+                })
+        return locale_shots
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = []
+        for version in versions_data['data']:
+            version_id = version['id']
+            platform = version['attributes'].get('platform', 'UNKNOWN')
+            locs_data = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
+            if locs_data and 'data' in locs_data:
+                for loc in locs_data['data']:
+                    futures.append(executor.submit(process_localization, loc, platform))
+        
+        for future in futures:
+            all_screenshots.extend(future.result())
+
+    # Save to DB
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_screenshots (
+                id TEXT PRIMARY KEY,
+                app_id TEXT,
+                store_id INTEGER,
+                localization_id TEXT,
+                locale TEXT,
+                display_type TEXT,
+                url TEXT,
+                width INTEGER,
+                height INTEGER,
+                platform TEXT
+            )
+        """)
+        for shot in all_screenshots:
+            shot_id = f"{app_id}_{shot['localization_id']}_{shot['display_type']}"
+            cursor.execute("""
+                INSERT OR REPLACE INTO app_screenshots 
+                (id, app_id, store_id, localization_id, locale, display_type, url, width, height, platform)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                shot_id, app_id, store_id,
+                shot['localization_id'], shot['locale'], shot['display_type'],
+                shot['url'], shot['width'], shot['height'], shot['platform']
+            ))
+        conn.commit()
+    print(f"[Screenshots] Saved {len(all_screenshots)} screenshots.")
+    return all_screenshots
+
+# -------------------------------
+# NEW: Patch Screenshots (Reusable)
+# -------------------------------
+def patch_screenshots(app_id, store_id, changes, issuer_id, key_id, private_key):
+    """
+    changes = {
+        'shot_id': {'localization_id': ..., 'display_type': ..., 'new_url': ...}
+    }
+    """
+    token = generate_jwt(issuer_id, key_id, private_key)
+    if not token:
+        return False
+
+    success = True
+    for shot_id, data in changes.items():
+        loc_id = data['localization_id']
+        disp = data['display_type']
+        new_url = data['new_url']
+
+        # Step 1: Find screenshot set
+        sets_url = f"{BASE_URL}/appStoreVersionLocalizations/{loc_id}/appScreenshotSets"
+        sets_data = get(sets_url, token)
+        set_id = None
+        for s in sets_data.get('data', []):
+            if s['attributes']['screenshotDisplayType'] == disp:
+                set_id = s['id']
+                break
+        if not set_id:
+            print(f"Set not found: {disp}")
+            success = False
+            continue
+
+        # Step 2: Create new screenshot (upload)
+        upload_url = f"{BASE_URL}/appScreenshots"
+        payload = {
+            "data": {
+                "type": "appScreenshots",
+                "attributes": {"fileName": f"{disp}.jpg", "fileSize": 100000},
+                "relationships": {
+                    "appScreenshotSet": {"data": {"type": "appScreenshotSets", "id": set_id}}
+                }
+            }
+        }
+        resp = requests.post(upload_url, json=payload, headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        })
+        if resp.status_code != 201:
+            print(f"Upload init failed: {resp.text}")
+            success = False
+            continue
+
+        upload_data = resp.json()['data']
+        op = upload_data['attributes']['uploadOperations'][0]
+        img_data = requests.get(new_url).content
+        upload_resp = requests.request(op['method'], op['url'], data=img_data, headers=op['headers'])
+        if upload_resp.status_code >= 400:
+            print(f"Upload failed: {upload_resp.text}")
+            success = False
+
+    if success:
+        # Refresh DB
+        fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key)
+    return success
+
+# -------------------------------
 # Process Single App Data
 # -------------------------------
 def process_app(app, store_id, issuer_id, key_id, private_key):
@@ -428,8 +608,12 @@ def process_app(app, store_id, issuer_id, key_id, private_key):
             else:
                 print(f"No {platform} version localizations found for version ID {version_id}.")
     else:
-        print(f"No app store versions with PREPARE_FOR_SUBMISSION found for app ID {app_id}.")
-    
+        print(f"No app store versions with PREPARE_FOR_SUBMISSION found for app ID {app_id}.")   
+    # -------------------------------
+    # Call: Fetch Screenshots
+    # -------------------------------
+    fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key)
+
     print(f"Completed fetch for app: {app_name} (ID: {app_id})")
 
     sync_db_to_github()

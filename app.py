@@ -13,6 +13,8 @@ from main import (
     fetch_app_store_versions,
     fetch_app_store_version_localizations,
     fetch_and_store_single_app,
+    patch_screenshots,
+    fetch_screenshots,
     sync_db_to_github
 )
 
@@ -128,6 +130,31 @@ def check_database_exists():
     return exists
 
 # -------------------------------
+# NEW: iTunes Search Feature
+# -------------------------------
+
+import requests
+
+def search_itunes_apps(term, country, entity):
+    if not term.strip():
+        return []
+    url = "https://itunes.apple.com/search"
+    params = {
+        "term": term,
+        "country": country,
+        "entity": entity,
+        "limit": 200
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("results", [])
+    except Exception as e:
+        st.error(f"Search failed: {e}")
+        return []
+    
+# -------------------------------
 # Load App Data
 # -------------------------------
 def load_app_data(app_id, store_id):
@@ -160,6 +187,25 @@ def load_version_localizations(app_id, store_id, platform=None):
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
     return df.drop_duplicates(subset=['localization_id'])
+
+# -------------------------------
+# Load Screenshots
+# -------------------------------
+def load_screenshots(app_id, store_id, platform=None):
+    conn = get_db_connection()
+    query = """
+        SELECT localization_id, locale, display_type, url, width, height, platform
+        FROM app_screenshots 
+        WHERE app_id = ? AND store_id = ?
+    """
+    params = [app_id, store_id]
+    if platform:
+        query += " AND platform = ?"
+        params.append(platform)
+    query += " ORDER BY locale, display_type"
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+    return df
 
 # -------------------------------
 # Get Apps List
@@ -240,6 +286,9 @@ def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_
     cursor = conn.cursor()
     success = True
 
+    if attribute == 'screenshots':
+        return bool(fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key))
+    
     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
         # Fetch app info
         app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
@@ -465,24 +514,85 @@ def main():
             return
 
     # -------------------------------------------------
-    # App header + single-app refresh button
+    # App header + single-app refresh button + iTunes Search
     # -------------------------------------------------
-    col_title, col_btn = st.columns([4, 1])
+    col_title, col_refresh, col_search = st.columns([3, 1, 1])
     with col_title:
         st.markdown(f"### {selected_app_name}")
-    with col_btn:
-        if st.button("🔄 Refresh", help="Re-fetch **only** this app from App Store Connect"):
+    with col_refresh:
+        if st.button("Refresh", help="Re-fetch only this app from App Store Connect"):
             with st.spinner(f"Refreshing {selected_app_name}…"):
                 success = fetch_and_store_single_app(
                     selected_app_id, selected_store_id,
                     issuer_id, key_id, private_key
                 )
                 if success:
-                    st.success(f"'{selected_app_name}' refreshed successfully!")
+                    st.success(f"'{selected_app_name}' refreshed!")
                 else:
-                    st.error(f"Refresh failed for '{selected_app_name}'. Check console for detailed request errors (e.g., API response).")
-            st.rerun()          # force page reload → fresh tables
+                    st.error(f"Refresh failed. Check console.")
+            st.rerun()
+
+    with col_search:
+        if st.button("Search iTunes", help="Search apps on App Store to copy metadata"):
+            st.session_state['show_itunes_search'] = True
+
     st.caption(f"App ID: `{selected_app_id}`")
+
+    # -------------------------------
+    # iTunes Search Popup
+    # -------------------------------
+    if st.session_state.get('show_itunes_search'):
+        with st.expander("iTunes App Search – Copy Metadata", expanded=True):
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                search_term = st.text_input("Keywords", placeholder="e.g., photo editor, calculator")
+            with col2:
+                country = st.selectbox("Country", ["us", "gb", "in", "ca", "au", "de", "fr", "jp"], index=0)
+            with col3:
+                entity = st.selectbox("Entity", ["software", "desktopSoftware", "iPadSoftware"])
+
+            if st.button("Search App Store"):
+                if search_term.strip():
+                    with st.spinner("Searching App Store..."):
+                        results = search_itunes_apps(search_term, country, entity)
+                        st.session_state['itunes_results'] = results
+                        st.session_state['search_performed'] = True
+                else:
+                    st.warning("Enter keywords!")
+
+            if st.session_state.get('search_performed'):
+                results = st.session_state.get('itunes_results', [])
+                if not results:
+                    st.info("No apps found. Try different keywords.")
+                else:
+                    st.write(f"**Found {len(results)} apps**")
+                    for app in results:
+                        app_name = app.get("trackName", "Unknown")
+                        bundle_id = app.get("bundleId", "")
+                        icon = app.get("artworkUrl100", "")
+                        description = app.get("description", "")
+
+                        with st.container():
+                            col_icon, col_info, col_action = st.columns([1, 5, 2])
+                            with col_icon:
+                                if icon:
+                                    st.image(icon, width=60)
+                            with col_info:
+                                st.markdown(f"**{app_name}**")
+                                st.caption(f"`{bundle_id}`")
+                                if len(description) > 100:
+                                    description = description[:100] + "..."
+                                st.caption(description)
+                            with col_action:
+                                if st.button("Use This", key=f"use_{bundle_id}"):
+                                    # Auto-fill fields
+                                    st.session_state[f"auto_name_en-US"] = app_name
+                                    st.session_state[f"auto_description_en-US"] = app.get("description", "")
+                                    
+                                    st.success(f"Metadata copied from **{app_name}**!")
+                                    st.session_state['show_itunes_search'] = False
+                                    st.rerun()
+                        st.markdown("---")
 
     # Create two columns in the main dashboard
     col_left, col_right = st.columns([1, 3])  # Left column narrower, right column wider
@@ -523,132 +633,158 @@ def main():
                         else:
                             st.error(f"Failed to sync {attr.capitalize()}. Check console for detailed request errors (e.g., API response body).")
                         st.rerun()
-
+        # -------------------------------
+        # Screenshots Button (Separate)
+        # -------------------------------
+        col_btn, col_sync = st.columns([3, 1])
+        with col_btn:
+            if st.button("🖼️ Screenshots", key="attr_screenshots"):
+                st.session_state['selected_attribute'] = 'screenshots'
+        with col_sync:
+            if st.button("Sync", key="sync_screenshots", help="Refresh screenshots from App Store"):
+                with st.spinner("Syncing screenshots..."):
+                    if sync_attribute_data('screenshots', selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform=st.session_state.get('platform')):
+                        st.success("Screenshots synced!")
+                    else:
+                        st.error("Sync failed.")
+                    st.rerun()
     with col_right:
         selected_attribute = st.session_state.get('selected_attribute', None)
-        if selected_attribute:
-            # Platform selection for version-specific attributes
+        if selected_attribute and selected_attribute != 'screenshots':
+            # Existing text attributes logic (unchanged)
             platform = None
             if selected_attribute in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']:
                 platform = st.selectbox("Select Platform", options=["IOS", "MAC_OS"], key="platform_select")
                 st.session_state['platform'] = platform
                 st.markdown("---")
 
-            # Fetch attribute data
             attr_data, table, type_name = get_attribute_data(selected_attribute, selected_app_id, selected_store_id, platform)
             
             if attr_data.empty:
-                st.warning(f"No data found for {selected_attribute} in {platform or 'app info'}.")
+                st.warning(f"No data found for {selected_attribute}.")
             else:
-                st.markdown(f"#### ✏️ Editing {selected_attribute.capitalize()} for {platform or 'App Info'}")
-                # Dictionary to store changes
+                st.markdown(f"#### Editing {selected_attribute.capitalize()} for {platform or 'App Info'}")
                 changes = {}
-                # === Get only existing locales for this attribute ===
                 all_locales = attr_data['locale'].tolist()
 
-                # === Hidden: Get en-US current value (if exists) ===
                 en_row = attr_data[attr_data['locale'] == 'en-US']
-                en_current = ""
-                if not en_row.empty:
-                    val = en_row.iloc[0][selected_attribute]
-                    en_current = val if pd.notna(val) else ""
+                # --- SOURCE TEXT FIELD (FIXED) ---
+                en_current = en_row.iloc[0][selected_attribute] if not en_row.empty and pd.notna(en_row.iloc[0][selected_attribute]) else ""
+                auto_key = f"auto_{selected_attribute}_en-US"
+                default_val = st.session_state.get(auto_key, en_current)
 
-                # === SIMPLE: One empty field + Translate button ===
+                # Unique key har baar
+                import uuid
+                source_key = f"source_input_{selected_app_id}_{selected_attribute}_{uuid.uuid4().hex[:8]}"
+
                 col_field, col_btn = st.columns([5, 1])
                 with col_field:
                     source_text = st.text_area(
-                        label="Source Text (en-US)",
-                        value=en_current,
-                        height=100,
-                        key=f"source_{selected_attribute}",
-                        placeholder="Enter text here and click Translate",
-                        label_visibility="collapsed"
+                        "Source Text (en-US)", value=default_val, height=100,
+                        key=source_key, label_visibility="collapsed"
                     )
                 with col_btn:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("Translate", key=f"btn_trans_{selected_attribute}"):
+                    if st.button("Translate", key=f"btn_trans_{selected_attribute}_{selected_app_id}"):
                         if not source_text.strip():
-                            st.error("Please enter source text!")
-                        elif not gemini_model:
-                            st.error("Gemini model is not available.")
+                            st.error("Enter source text!")
                         else:
                             with st.spinner("Translating..."):
-                                translation_success = True
                                 for locale in all_locales:
-                                    if locale == 'en-US':
-                                        translated = source_text
-                                    else:
-                                        translated = translate_text(source_text, locale)
-                                        # Small delay between requests
-                                        time.sleep(0.6)
-                                        if translated == source_text:  # Assuming failure if unchanged
-                                            translation_success = False
+                                    translated = source_text if locale == 'en-US' else translate_text(source_text, locale)
                                     st.session_state[f"auto_{selected_attribute}_{locale}"] = translated
-                                if translation_success:
-                                    st.success("All translations completed!")
-                                else:
-                                    st.error("Some translations failed. See individual locale errors above.")
+                                    time.sleep(0.6)
+                                st.success("Translated!")
                             st.rerun()
 
                 st.markdown("---")
-
-                # === Show all existing fields (auto-filled) ===
-                                # === Show all existing fields (auto-filled) ===
                 changes = {}
                 for _, row in attr_data.iterrows():
                     loc_id = row['localization_id']
                     locale = row['locale']
                     db_val = row[selected_attribute] if pd.notna(row[selected_attribute]) else ""
-
-                    # Auto-fill from translation
                     fill_key = f"auto_{selected_attribute}_{locale}"
                     display_val = st.session_state.get(fill_key, db_val)
 
                     st.markdown(f"**{locale}**")
                     if selected_attribute in ['description', 'keywords', 'promotional_text', 'whats_new']:
-                        new_val = st.text_area(
-                            label=f"{locale} {selected_attribute}",
-                            value=display_val,
-                            key=f"edit_{loc_id}",
-                            height=100,
-                            label_visibility="collapsed"  # Hides label but satisfies accessibility
-                        )
+                        new_val = st.text_area(f"{locale} {selected_attribute}", value=display_val, key=f"edit_{loc_id}", height=100, label_visibility="collapsed")
                     else:
-                        new_val = st.text_input(
-                            label=f"{locale} {selected_attribute}",
-                            value=display_val,
-                            key=f"edit_{loc_id}",
-                            label_visibility="collapsed"
-                        )
-                    
+                        new_val = st.text_input(f"{locale} {selected_attribute}", value=display_val, key=f"edit_{loc_id}", label_visibility="collapsed")
                     changes[loc_id] = new_val
                     st.markdown("---")
-                
-                # Save Changes Button
-                if st.button("💾 Save Changes", key=f"save_{selected_attribute}"):
-                    patch_success = True
-                    patch_errors = []
-                    with st.spinner("Saving changes to App Store Connect..."):
-                        for loc_id, new_value in changes.items():
-                            new_value = None if new_value == "" else new_value
-                            patch_func = patch_app_info_localization if table == 'app_info_localizations' else patch_app_store_version_localization
-                            if not patch_func(loc_id, {selected_attribute: new_value}, issuer_id, key_id, private_key):
-                                patch_success = False
-                                patch_errors.append(f"Locale ID {loc_id}")
+
+                if st.button("Save Changes", key=f"save_{selected_attribute}"):
+                    with st.spinner("Saving..."):
+                        success = True
+                        for loc_id, val in changes.items():
+                            val = None if val == "" else val
+                            func = patch_app_info_localization if table == 'app_info_localizations' else patch_app_store_version_localization
+                            if not func(loc_id, {selected_attribute: val}, issuer_id, key_id, private_key):
+                                success = False
                             else:
-                                update_db_attribute(table, loc_id, selected_attribute, new_value, selected_store_id)
-                    if patch_success:
-                        st.success("All changes saved successfully to App Store Connect and local DB!")
-                        sync_db_to_github()
-                        # Clear auto-fill
-                        for loc in all_locales:
-                            key = f"auto_{selected_attribute}_{loc}"
-                            if key in st.session_state:
-                                del st.session_state[key]
-                        st.rerun()
+                                update_db_attribute(table, loc_id, selected_attribute, val, selected_store_id)
+                        if success:
+                            st.success("Saved!")
+                            sync_db_to_github()
+                            for loc in all_locales:
+                                k = f"auto_{selected_attribute}_{loc}"
+                                if k in st.session_state: del st.session_state[k]
+                            st.rerun()
+                        else:
+                            st.error("Save failed.")
+
+        # -------------------------------------------------
+        # Screenshots: No Translation, Only Image + URL
+        # -------------------------------------------------
+        elif selected_attribute == 'screenshots':
+            st.markdown("#### Editing Screenshots")
+
+            platform = st.selectbox("Select Platform", ["IOS", "MAC_OS"], key="platform_screenshots")
+            st.session_state['platform'] = platform
+            st.markdown("---")
+
+            df = load_screenshots(selected_app_id, selected_store_id, platform)
+
+            if df.empty:
+                st.warning(f"No screenshots found for {platform}.")
+            else:
+                changes = {}
+
+                for locale, loc_group in df.groupby('locale'):
+                    with st.expander(f"{locale}"):
+                        for disp, disp_group in loc_group.groupby('display_type'):
+                            st.markdown(f"**{disp}**")
+                            cols = st.columns(3)
+                            for idx, row in enumerate(disp_group.itertuples()):
+                                col = cols[idx % 3]
+                                shot_id = f"{row.localization_id}_{disp}_{idx}"
+                                with col:
+                                    st.image(row.url, caption=f"{row.width}×{row.height}", use_column_width=True)
+                                    new_url = st.text_input(
+                                        "Replace with new image URL",
+                                        value="",
+                                        key=f"edit_shot_{shot_id}",
+                                        placeholder="https://example.com/image.jpg"
+                                    )
+                                    if new_url.strip():
+                                        changes[shot_id] = {
+                                            'localization_id': row.localization_id,
+                                            'display_type': disp,
+                                            'new_url': new_url.strip()
+                                        }
+
+                if st.button("Save Changes", key="save_screenshots"):
+                    if not changes:
+                        st.warning("No changes to save.")
                     else:
-                        error_msg = f"Failed to save for {len(patch_errors)} locale(s): {', '.join(patch_errors)}. Check console for detailed API response errors."
-                        st.error(error_msg)
+                        with st.spinner("Uploading new screenshots..."):
+                            if patch_screenshots(selected_app_id, selected_store_id, changes, issuer_id, key_id, private_key):
+                                st.success("Screenshots updated successfully!")
+                                sync_db_to_github()
+                                st.rerun()
+                            else:
+                                st.error("Failed to update screenshots. Check console.")
 
 if __name__ == "__main__":
     main()
