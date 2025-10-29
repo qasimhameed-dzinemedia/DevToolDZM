@@ -31,26 +31,37 @@ def load_db_from_github():
 load_db_from_github()
 
 def sync_db_to_github():
-    """Uploads the latest database file to GitHub repo."""
+    """Uploads or updates the latest database file to GitHub repo."""
     token = st.secrets["GITHUB_TOKEN"]
     repo = st.secrets["REPO"]
     db_path = st.secrets["DB_PATH"]
     api_url = f"https://api.github.com/repos/{repo}/contents/{db_path}"
 
-    print("Uploading to:", api_url)
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
 
     with open(db_path, "rb") as f:
         content = base64.b64encode(f.read()).decode()
 
-    headers = {"Authorization": f"token {token}"}
+    # Get existing file SHA (needed for update)
     get_res = requests.get(api_url, headers=headers)
-    sha = get_res.json().get("sha")
+    if get_res.status_code == 200:
+        sha = get_res.json()["sha"]
+        print("🔁 Updating existing DB on GitHub...")
+    else:
+        sha = None
+        print("🆕 Creating new DB file on GitHub...")
 
     data = {
         "message": "Auto-sync database update",
         "content": content,
-        "sha": sha
+        "branch": "main"
     }
+
+    if sha:
+        data["sha"] = sha
 
     res = requests.put(api_url, headers=headers, json=data)
     if res.status_code in [200, 201]:
