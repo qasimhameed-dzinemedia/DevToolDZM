@@ -37,6 +37,8 @@ def sync_db_to_github():
     db_path = st.secrets["DB_PATH"]
     api_url = f"https://api.github.com/repos/{repo}/contents/{db_path}"
 
+    print("Uploading to:", api_url)
+
     with open(db_path, "rb") as f:
         content = base64.b64encode(f.read()).decode()
 
