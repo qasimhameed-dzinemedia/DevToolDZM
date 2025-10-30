@@ -719,7 +719,7 @@ def main():
                 if st.button("Translate All"):
                     for loc in locales:
                         st.session_state[f"auto_{attr}_{loc}"] = source_text if loc == 'en-US' else translate_text(source_text, loc)
-                        time.sleep(0.6)
+                        time.sleep(4)
                     st.rerun()
                 st.markdown("---")
 
