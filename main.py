@@ -208,6 +208,7 @@ def fetch_all_apps(issuer_id, key_id, private_key):
         print(f"Fetched {len(data.get('data', []))} apps, next URL: {url or 'None'}")
         time.sleep(REQUEST_DELAY)
     print(f"Fetched total {len(apps)} apps.")
+    sync_db_to_github()
     return apps
 
 # -------------------------------
@@ -223,6 +224,7 @@ def fetch_app_info(app_id, issuer_id, key_id, private_key):
     data = get(url, token)
     if data:
         print(f"Fetched app info for app ID {app_id}.")
+    sync_db_to_github()
     return data
 
 # -------------------------------
@@ -238,6 +240,7 @@ def fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key):
     data = get(url, token)
     if data:
         print(f"Fetched {len(data.get('data', []))} app info localizations for app info ID {app_info_id}.")
+    sync_db_to_github()
     return data
 
 # -------------------------------
@@ -253,6 +256,7 @@ def fetch_app_store_versions(app_id, issuer_id, key_id, private_key):
     data = get(url, token)
     if data:
         print(f"Fetched {len(data.get('data', []))} app store versions for app ID {app_id}.")
+    sync_db_to_github()
     return data
 
 # -------------------------------
@@ -268,6 +272,7 @@ def fetch_app_store_version_localizations(app_store_version_id, issuer_id, key_i
     data = get(url, token)
     if data:
         print(f"Fetched {len(data.get('data', []))} version localizations for version ID {app_store_version_id}.")
+    sync_db_to_github()
     return data
 
 # -------------------------------
@@ -428,6 +433,7 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
             ))
         conn.commit()
     print(f"[Screenshots] Saved {len(all_screenshots)} screenshots.")
+    sync_db_to_github()
     return all_screenshots
 
 # -------------------------------
