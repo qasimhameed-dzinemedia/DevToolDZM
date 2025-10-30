@@ -164,7 +164,7 @@ def create_default_admin():
     if not cursor.fetchone():
         cursor.execute(
             "INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
-            ("admin", hash_password("admin123"), 1)
+            ("Admin", hash_password("admin123"), 1)
         )
         conn.commit()
     conn.close()
