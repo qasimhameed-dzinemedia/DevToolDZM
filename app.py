@@ -814,7 +814,7 @@ def main():
                                         st.session_state["source_text_subtitle"] = scraped['subtitle']
                                         st.session_state["source_text_description"] = app.get("description", "")
                                         st.session_state["itunes_screenshots"] = scraped['screenshots']
-                                        st.success(f"Copied: **{scraped['name']}**")
+                                        # st.success(f"Copied: **{scraped['name']}**")
                                     else:
                                         st.session_state["source_text_name"] = name
                                         st.session_state["source_text_description"] = app.get("description", "")
