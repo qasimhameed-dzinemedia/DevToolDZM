@@ -677,6 +677,7 @@ def main():
                         success = sync_attribute_data(attr, selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform)
                         if success:
                             st.success("Synced!")
+                            sync_db_to_github()
                         else:
                             st.error("Sync failed.")
                         st.rerun()
@@ -691,6 +692,7 @@ def main():
                     success = sync_attribute_data('screenshots', selected_app_id, selected_store_id, issuer_id, key_id, private_key)
                     if success:
                         st.success("Screenshots synced!")
+                        sync_db_to_github()
                     else:
                         st.error("Sync failed.")
                     st.rerun()
@@ -712,15 +714,29 @@ def main():
                 st.markdown("---")
                 changes = {}
                 locales = data['locale'].tolist()
-                en_row = data[data['locale'] == 'en-US']
-                itunes_value = st.session_state.get(f"source_text_{attr}", "")
-                default_value = itunes_value if itunes_value else (en_row.iloc[0][attr] if not en_row.empty else "")
-                source_text = st.text_area("Source (en-US)", value=default_value, height=100)
+                # --- SOURCE TEXT BOX: Always empty, user types English ---
+                source_text = st.text_area(
+                    "Source Text (English)", 
+                    value=st.session_state.get(f"source_text_{attr}", ""),
+                    placeholder="Write your text in English...",
+                    height=100,
+                    key=f"source_input_{attr}"
+                )
+
+                # Save for Translate All
+                st.session_state[f"source_text_{attr}"] = source_text
                 if st.button("Translate All"):
-                    for loc in locales:
-                        st.session_state[f"auto_{attr}_{loc}"] = source_text if loc == 'en-US' else translate_text(source_text, loc)
-                        time.sleep(4)
-                    st.rerun()
+                    if not source_text.strip():
+                        st.warning("Please write English text in the source box first.")
+                    else:
+                        with st.spinner("Translating to all languages..."):
+                            for loc in locales:
+                                # Treat source as English → translate to ALL locales (including en-US)
+                                translated = translate_text(source_text, loc)
+                                st.session_state[f"auto_{attr}_{loc}"] = translated
+                            time.sleep(4)
+                        st.success("All languages translated!")
+                        st.rerun()
                 st.markdown("---")
 
                 for _, row in data.iterrows():
