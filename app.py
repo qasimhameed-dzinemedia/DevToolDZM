@@ -5,6 +5,8 @@ import pandas as pd
 import google.generativeai as genai
 import requests
 import hashlib
+from bs4 import BeautifulSoup
+import re
 from main import (
     fetch_and_store_apps,
     patch_app_info_localization,
@@ -244,6 +246,47 @@ def search_itunes_apps(term, country, entity):
         st.error(f"Search failed: {e}")
         return []
 
+# -------------------------------
+# New: Scrape App Store Page for Name, Subtitle, Description
+# -------------------------------
+def scrape_appstore_page(track_view_url):
+    """
+    Scrape the App Store page for name, subtitle, and full description.
+    Returns dict: {'name': str, 'subtitle': str, 'description': str}
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    try:
+        response = requests.get(track_view_url, headers=headers, timeout=15)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Extract name: Usually in h1 with class 'product-header__title'
+        name_elem = soup.find('h1', class_='product-header__title') or soup.find('h1', {'data-testid': 'product-title'})
+        name = name_elem.get_text(strip=True) if name_elem else 'Unknown App'
+
+        # Extract subtitle: h2 below name
+        subtitle_elem = soup.find('h2', class_='product-header__subtitle') or soup.find('div', {'data-testid': 'product-subtitle'})
+        subtitle = subtitle_elem.get_text(strip=True) if subtitle_elem else 'No subtitle available'
+
+        # Extract description: Main description section
+        desc_elem = soup.find('div', {'data-testid': 'product-page-description'}) or soup.find('div', class_='product-section__description')
+        if desc_elem:
+            # Clean up description: Remove extra whitespace and join lines
+            description = re.sub(r'\s+', ' ', desc_elem.get_text(strip=True))
+        else:
+            description = 'No description available'
+
+        return {
+            'name': name,
+            'subtitle': subtitle,
+            'description': description
+        }
+    except Exception as e:
+        st.error(f"Scraping failed for {track_view_url}: {e}")
+        return None
+    
 # -------------------------------
 # Load Data
 # -------------------------------
@@ -694,7 +737,7 @@ def main():
 
     st.caption(f"App ID: `{selected_app_id}`")
 
-    # iTunes Search
+    # iTunes Search – Updated with Scraping
     if st.session_state.get('show_itunes_search'):
         with st.expander("iTunes App Search – Copy Metadata", expanded=True):
             col1, col2, col3 = st.columns([2, 1, 1])
@@ -715,6 +758,7 @@ def main():
                 for app in results:
                     name = app.get("trackName", "Unknown")
                     bundle = app.get("bundleId", "")
+                    track_view_url = app.get("trackViewUrl", "")  # New: Get the URL
                     icon = app.get("artworkUrl100", "")
                     desc = app.get("description", "")[:100] + "..."
                     with st.container():
@@ -727,9 +771,23 @@ def main():
                             st.caption(desc)
                         with c3:
                             if st.button("Use This", key=f"use_{bundle}"):
-                                st.session_state["source_text_name"] = name
-                                st.session_state["source_text_description"] = app.get("description", "")
-                                st.success(f"Copied from **{name}**!")
+                                # New: Scrape the page first
+                                scraped_data = scrape_appstore_page(track_view_url) if track_view_url else None
+                                if scraped_data:
+                                    st.session_state["source_text_name"] = scraped_data['name']
+                                    st.session_state["source_text_subtitle"] = scraped_data['subtitle']  # New: Subtitle
+                                    st.session_state["source_text_description"] = scraped_data['description']
+                                    st.success(f"Scraped and copied from **{name}**! (Name: {scraped_data['name'][:50]}..., Subtitle: {scraped_data['subtitle'][:30]}...)")
+                                else:
+                                    # Fallback to API data
+                                    st.session_state["source_text_name"] = name
+                                    st.session_state["source_text_description"] = app.get("description", "")
+                                    st.warning(f"Scraping failed for {name}, using API data as fallback.")
+                                
+                                # New: Auto-select 'name' attribute if not selected (to show fields)
+                                if 'selected_attribute' not in st.session_state or st.session_state['selected_attribute'] not in ['name', 'subtitle']:
+                                    st.session_state['selected_attribute'] = 'name'
+                                
                                 st.session_state['show_itunes_search'] = False
                                 st.rerun()
                     st.markdown("---")
