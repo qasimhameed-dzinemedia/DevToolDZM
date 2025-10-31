@@ -473,6 +473,25 @@ def main():
 
     login()
 
+    # --- Logout Button ---
+    if st.sidebar.button("Logout", key="logout_main"):
+        st.session_state['confirm_logout'] = True  # trigger confirmation
+    if st.session_state.get('confirm_logout', False):
+        st.sidebar.warning("Are you sure you want to log out?")
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            if st.button("Logout", key="confirm_yes_logout"):
+                for key in ['authenticated', 'user', 'is_admin', 'selected_attribute']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                if 'confirm_logout' in st.session_state:
+                    del st.session_state['confirm_logout']
+                st.success("You have been logged out successfully.")
+                st.rerun()
+        with col2:
+            if st.button("Cancel", key="confirm_no_logout"):
+                del st.session_state['confirm_logout']
+                
     st.sidebar.success(f"Logged in as: **{st.session_state.user['username']}**")
     if st.session_state.is_admin:
         st.sidebar.success("You are **ADMIN**")
@@ -584,27 +603,6 @@ def main():
     app_options = {row['name']: row['app_id'] for _, row in apps_df.iterrows()}
     selected_app_name = st.sidebar.selectbox("Select App", list(app_options.keys()))
     selected_app_id = app_options[selected_app_name]
-
-    st.sidebar.markdown("<br><br><br><br><br>", unsafe_allow_html=True)
-
-    # --- Logout Button ---
-    if st.sidebar.button("Logout", key="logout_main"):
-        st.session_state['confirm_logout'] = True  # trigger confirmation
-    if st.session_state.get('confirm_logout', False):
-        st.sidebar.warning("Are you sure you want to log out?")
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            if st.button("Logout", key="confirm_yes_logout"):
-                for key in ['authenticated', 'user', 'is_admin', 'selected_attribute']:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                if 'confirm_logout' in st.session_state:
-                    del st.session_state['confirm_logout']
-                st.success("You have been logged out successfully.")
-                st.rerun()
-        with col2:
-            if st.button("Cancel", key="confirm_no_logout"):
-                del st.session_state['confirm_logout']
 
     col_title, col_refresh, col_search = st.columns([3, 1, 1])
     with col_title:
