@@ -8,115 +8,70 @@ import streamlit as st
 import base64
 import os
 
+# ===============================
+# GitHub Database Sync
+# ===============================
 def load_db_from_github():
-    """Downloads the latest database file from GitHub repo."""
+    """Download latest database from GitHub."""
+    print("Downloading database from GitHub...")
     token = st.secrets["GITHUB_TOKEN"]
     repo = st.secrets["REPO"]
     db_path = st.secrets["DB_PATH"]
     api_url = f"https://api.github.com/repos/{repo}/contents/{db_path}"
-
     headers = {"Authorization": f"token {token}"}
-    res = requests.get(api_url, headers=headers)
 
+    res = requests.get(api_url, headers=headers)
     if res.status_code == 200:
         data = res.json()
         download_url = data.get("download_url")
-
         if download_url:
-            # ✅ Safest way: download raw binary directly
             file_data = requests.get(download_url)
             with open(db_path, "wb") as f:
                 f.write(file_data.content)
-            print(f"✅ Loaded latest database ({len(file_data.content)} bytes) from GitHub.")
+            print(f"Database loaded from GitHub ({len(file_data.content)} bytes)")
         else:
-            # fallback if no download_url provided
             content = base64.b64decode(data["content"])
             with open(db_path, "wb") as f:
                 f.write(content)
-            print("✅ Loaded DB via Base64 fallback.")
+            print("Database loaded via Base64 fallback")
     else:
-        print(f"⚠️ Could not load DB from GitHub: {res.text}")
-
-
+        print(f"Failed to load DB from GitHub: {res.status_code}")
 
 def sync_db_to_github():
-    """Uploads or updates the latest database file to GitHub repo."""
+    """Upload current database to GitHub."""
+    print("Syncing database to GitHub...")
     token = st.secrets["GITHUB_TOKEN"]
     repo = st.secrets["REPO"]
     db_path = st.secrets["DB_PATH"]
     api_url = f"https://api.github.com/repos/{repo}/contents/{db_path}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
 
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-    # 🧠 Safety check: don't push if DB file is empty or missing
     if not os.path.exists(db_path) or os.path.getsize(db_path) < 1000:
-        print(f"⚠️ Database file '{db_path}' seems empty or missing — skipping GitHub sync.")
+        print("Database file is missing or too small. Skipping sync.")
         return
 
     with open(db_path, "rb") as f:
         content = base64.b64encode(f.read()).decode()
 
-    # Get existing file SHA (needed for update)
     get_res = requests.get(api_url, headers=headers)
-    if get_res.status_code == 200:
-        sha = get_res.json()["sha"]
-        print("🔁 Updating existing DB on GitHub...")
-    else:
-        sha = None
-        print("🆕 Creating new DB file on GitHub...")
+    sha = get_res.json().get("sha") if get_res.status_code == 200 else None
 
-    data = {
-        "message": "Auto-sync database update",
-        "content": content,
-        "branch": "main"
-    }
+    data = {"message": "Auto-sync: Database update", "content": content, "branch": "main"}
     if sha:
         data["sha"] = sha
 
     res = requests.put(api_url, headers=headers, json=data)
     if res.status_code in [200, 201]:
-        print("✅ Database synced to GitHub successfully!")
+        print("Database synced to GitHub successfully!")
     else:
-        print("❌ Failed to sync DB:", res.text)
+        print(f"GitHub sync failed: {res.status_code} - {res.text}")
 
-
-
-# 🔍 Debug check (you can remove later)
-print("Repo:", st.secrets["REPO"])
-print("DB Path:", st.secrets["DB_PATH"])
-print("GitHub Token starts with:", st.secrets["GITHUB_TOKEN"][:8], "...")
-
-
-# -------------------------------
-# Configuration
-# -------------------------------
-BASE_URL = "https://api.appstoreconnect.apple.com/v1"
-REQUEST_DELAY = 0.2  # Delay in seconds between task submissions
-
-# -------------------------------
-# Attribute Name Mapping
-# -------------------------------
-ATTRIBUTE_MAPPING = {
-    'privacy_policy_url': 'privacyPolicyUrl',
-    'privacy_choices_url': 'privacyChoicesUrl',
-    'marketing_url': 'marketingUrl',
-    'support_url': 'supportUrl',
-    'whats_new': 'whatsNew',
-    'name': 'name',
-    'subtitle': 'subtitle',
-    'description': 'description',
-    'keywords': 'keywords',
-    'promotional_text': 'promotionalText'
-}
-
-# -------------------------------
+# ===============================
 # Database Connection
-# -------------------------------
+# ===============================
 @contextlib.contextmanager
 def get_db_connection():
+    """Safely open and close SQLite connection."""
     conn = None
     try:
         conn = sqlite3.connect("app_store_data.db", timeout=30)
@@ -130,10 +85,44 @@ def get_db_connection():
         if conn:
             conn.close()
 
-# -------------------------------
-# Generate JWT Token
-# -------------------------------
+# ===============================
+# Safe Insert (Only Valid Data)
+# ===============================
+def safe_insert_or_replace(conn, table, data_dict):
+    """Insert data only if all values are valid."""
+    if not data_dict or not all(k in data_dict for k in data_dict):
+        return False
+    cursor = conn.cursor()
+    columns = ", ".join(data_dict.keys())
+    placeholders = ", ".join(["?"] * len(data_dict))
+    sql = f"INSERT OR REPLACE INTO {table} ({columns}) VALUES ({placeholders})"
+    cursor.execute(sql, tuple(data_dict.values()))
+    conn.commit()
+    return True
+
+# ===============================
+# API Configuration
+# ===============================
+BASE_URL = "https://api.appstoreconnect.apple.com/v1"
+REQUEST_DELAY = 0.2
+ATTRIBUTE_MAPPING = {
+    'privacy_policy_url': 'privacyPolicyUrl',
+    'privacy_choices_url': 'privacyChoicesUrl',
+    'marketing_url': 'marketingUrl',
+    'support_url': 'supportUrl',
+    'whats_new': 'whatsNew',
+    'name': 'name',
+    'subtitle': 'subtitle',
+    'description': 'description',
+    'keywords': 'keywords',
+    'promotional_text': 'promotionalText'
+}
+
+# ===============================
+# JWT & HTTP Helpers
+# ===============================
 def generate_jwt(issuer_id, key_id, private_key):
+    """Generate JWT token for App Store Connect."""
     print("Generating JWT token...")
     headers = {"alg": "ES256", "kid": key_id, "typ": "JWT"}
     payload = {
@@ -144,561 +133,410 @@ def generate_jwt(issuer_id, key_id, private_key):
     }
     try:
         token = jwt.encode(payload, private_key, algorithm="ES256", headers=headers)
-        print("JWT token generated.")
+        print("JWT token generated successfully.")
         return token
     except Exception as e:
-        print(f"Error generating JWT: {e}")
+        print(f"Failed to generate JWT: {e}")
         return None
 
-# -------------------------------
-# Generic GET Helper
-# -------------------------------
 def get(url, token):
-    print(f"Fetching data from {url}...")
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    """GET request with error handling."""
+    print(f"Fetching data from: {url}")
+    headers = {"Authorization": f"Bearer {token}"}
     try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        print(f"Data fetched from {url}.")
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to fetch data from {url}: {e}")
-        print(f"Response: {response.text}")
+        r = requests.get(url, headers=headers, timeout=30)
+        r.raise_for_status()
+        print(f"Data fetched successfully from {url}")
+        return r.json()
+    except Exception as e:
+        print(f"GET request failed: {e}")
         return None
 
-# -------------------------------
-# Generic PATCH Helper
-# -------------------------------
 def patch(url, token, payload):
-    print(f"Patching data to {url}...")
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
+    """PATCH request with error handling."""
+    print(f"Patching data to: {url}")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     try:
-        response = requests.patch(url, json=payload, headers=headers)
-        response.raise_for_status()
-        print(f"Data patched to {url}.")
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to patch data to {url}: {e}")
-        print(f"Response: {response.text}")
+        r = requests.patch(url, json=payload, headers=headers, timeout=30)
+        r.raise_for_status()
+        print(f"Patch successful: {url}")
+        return r.json()
+    except Exception as e:
+        print(f"Patch failed: {e}")
         return None
 
-# -------------------------------
+# ===============================
 # Fetch All Apps
-# -------------------------------
+# ===============================
 def fetch_all_apps(issuer_id, key_id, private_key):
-    print("Fetching all apps...")
+    """Fetch all apps from App Store Connect."""
+    print("Starting to fetch all apps...")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print("Failed to generate JWT for fetching apps.")
         return None
+
     apps = []
     url = f"{BASE_URL}/apps"
-    
     while url:
         data = get(url, token)
-        if not data:
-            print("Failed to fetch apps.")
+        if not data or 'data' not in data:
+            print("No app data received. Stopping.")
             return None
-        apps.extend(data.get("data", []))
+        apps.extend(data['data'])
         url = data.get("links", {}).get("next")
-        print(f"Fetched {len(data.get('data', []))} apps, next URL: {url or 'None'}")
+        print(f"Fetched {len(data['data'])} apps. Next page: {'Yes' if url else 'No'}")
         time.sleep(REQUEST_DELAY)
-    print(f"Fetched total {len(apps)} apps.")
+    print(f"Total apps fetched: {len(apps)}")
     sync_db_to_github()
     return apps
 
-# -------------------------------
-# Fetch App Info
-# -------------------------------
+# ===============================
+# Fetch App Info + Localizations
+# ===============================
 def fetch_app_info(app_id, issuer_id, key_id, private_key):
-    print(f"Fetching app info for app ID {app_id}...")
+    """Fetch app info (contains localizations)."""
+    print(f"Fetching app info for App ID: {app_id}")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print(f"Failed to generate JWT for app info of app ID {app_id}.")
         return None
     url = f"{BASE_URL}/apps/{app_id}/appInfos"
     data = get(url, token)
-    if data:
-        print(f"Fetched app info for app ID {app_id}.")
+    if not data or 'data' not in data:
+        print(f"No app info found for App ID: {app_id}")
+        return None
+
+    # Clear old localizations
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM app_info_localizations WHERE app_id = ?", (app_id,))
+    print(f"App info fetched for {app_id}. Found {len(data['data'])} entries.")
     sync_db_to_github()
     return data
 
-# -------------------------------
-# Fetch App Info Localizations
-# -------------------------------
 def fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key):
-    print(f"Fetching app info localizations for app info ID {app_info_id}...")
+    """Fetch localizations for a specific app info."""
+    print(f"Fetching app info localizations for Info ID: {app_info_id}")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print(f"Failed to generate JWT for app info localizations of app info ID {app_info_id}.")
         return None
     url = f"{BASE_URL}/appInfos/{app_info_id}/appInfoLocalizations"
     data = get(url, token)
-    if data:
-        print(f"Fetched {len(data.get('data', []))} app info localizations for app info ID {app_info_id}.")
+    if not data or 'data' not in data:
+        print(f"No localizations found for Info ID: {app_info_id}")
+        return None
+
+    with get_db_connection() as conn:
+        for loc in data['data']:
+            attrs = loc['attributes']
+            safe_insert_or_replace(conn, 'app_info_localizations', {
+                'localization_id': loc['id'],
+                'app_id': app_info_id.split('_')[0] if '_' in app_info_id else app_info_id,
+                'store_id': None,
+                'locale': attrs.get('locale'),
+                'name': attrs.get('name'),
+                'subtitle': attrs.get('subtitle'),
+                'privacy_policy_url': attrs.get('privacyPolicyUrl'),
+                'privacy_choices_url': attrs.get('privacyChoicesUrl')
+            })
+    print(f"Saved {len(data['data'])} app info localizations for {app_info_id}")
     sync_db_to_github()
     return data
 
-# -------------------------------
-# Fetch App Store Versions with Filter
-# -------------------------------
+# ===============================
+# Fetch App Store Versions
+# ===============================
 def fetch_app_store_versions(app_id, issuer_id, key_id, private_key):
-    print(f"Fetching app store versions for app ID {app_id} with PREPARE_FOR_SUBMISSION...")
+    """Fetch PREPARE_FOR_SUBMISSION versions."""
+    print(f"Fetching App Store versions for App ID: {app_id}")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print(f"Failed to generate JWT for app store versions of app ID {app_id}.")
         return None
     url = f"{BASE_URL}/apps/{app_id}/appStoreVersions?filter[appStoreState]=PREPARE_FOR_SUBMISSION"
     data = get(url, token)
-    if data:
-        print(f"Fetched {len(data.get('data', []))} app store versions for app ID {app_id}.")
-    sync_db_to_github()
-    return data
-
-# -------------------------------
-# Fetch App Store Version Localizations
-# -------------------------------
-def fetch_app_store_version_localizations(app_store_version_id, issuer_id, key_id, private_key):
-    print(f"Fetching version localizations for version ID {app_store_version_id}...")
-    token = generate_jwt(issuer_id, key_id, private_key)
-    if not token:
-        print(f"Failed to generate JWT for version localizations of version ID {app_store_version_id}.")
+    if not data or 'data' not in data:
+        print(f"No PREPARE_FOR_SUBMISSION versions found for App ID: {app_id}")
         return None
-    url = f"{BASE_URL}/appStoreVersions/{app_store_version_id}/appStoreVersionLocalizations"
-    data = get(url, token)
-    if data:
-        print(f"Fetched {len(data.get('data', []))} version localizations for version ID {app_store_version_id}.")
+
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM app_versions WHERE app_id = ?", (app_id,))
+        conn.execute("DELETE FROM app_version_localizations WHERE app_id = ?", (app_id,))
+        for v in data['data']:
+            safe_insert_or_replace(conn, 'app_versions', {
+                'version_id': v['id'],
+                'app_id': app_id,
+                'store_id': None,
+                'platform': v['attributes'].get('platform')
+            })
+    print(f"Saved {len(data['data'])} versions for App ID: {app_id}")
     sync_db_to_github()
     return data
 
-# -------------------------------
-# Patch App Info Localization
-# -------------------------------
-def patch_app_info_localization(localization_id, attributes, issuer_id, key_id, private_key):
-    print(f"Patching app info localization ID {localization_id}...")
+def fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key):
+    """Fetch localizations for a version."""
+    print(f"Fetching version localizations for Version ID: {version_id}")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print(f"Failed to generate JWT for patching app info localization ID {localization_id}.")
-        return False
-    url = f"{BASE_URL}/appInfoLocalizations/{localization_id}"
-    # Convert attribute names to camelCase
-    mapped_attributes = {ATTRIBUTE_MAPPING.get(k, k): v for k, v in attributes.items() if v is not None}
-    payload = {
-        "data": {
-            "type": "appInfoLocalizations",
-            "id": localization_id,
-            "attributes": mapped_attributes
-        }
-    }
-    result = patch(url, token, payload)
-    return result is not None
+        return None
+    url = f"{BASE_URL}/appStoreVersions/{version_id}/appStoreVersionLocalizations"
+    data = get(url, token)
+    if not data or 'data' not in data:
+        print(f"No version localizations for Version ID: {version_id}")
+        return None
 
-# -------------------------------
-# Patch App Store Version Localization
-# -------------------------------
-def patch_app_store_version_localization(localization_id, attributes, issuer_id, key_id, private_key):
-    print(f"Patching app store version localization ID {localization_id}...")
-    token = generate_jwt(issuer_id, key_id, private_key)
-    if not token:
-        print(f"Failed to generate JWT for patching app store version localization ID {localization_id}.")
-        return False
-    url = f"{BASE_URL}/appStoreVersionLocalizations/{localization_id}"
-    # Convert attribute names to camelCase
-    mapped_attributes = {ATTRIBUTE_MAPPING.get(k, k): v for k, v in attributes.items() if v is not None}
-    payload = {
-        "data": {
-            "type": "appStoreVersionLocalizations",
-            "id": localization_id,
-            "attributes": mapped_attributes
-        }
-    }
-    result = patch(url, token, payload)
-    return result is not None
-
-# -------------------------------
-# Patch App Store Version Localization
-# -------------------------------
-def patch_app_store_version_localization(localization_id, attributes, issuer_id, key_id, private_key):
-    attr = list(attributes.keys())[0] if attributes else "unknown"
-    print(f"PATCH App-Info – attribute '{attr}'")
-    token = generate_jwt(issuer_id, key_id, private_key)
-    if not token:
-        print(f"Failed to generate JWT for patching app store version localization ID {localization_id}.")
-        return False
-    url = f"{BASE_URL}/appStoreVersionLocalizations/{localization_id}"
-    # Convert attribute names to camelCase
-    mapped_attributes = {ATTRIBUTE_MAPPING.get(k, k): v for k, v in attributes.items() if v is not None}
-    payload = {
-        "data": {
-            "type": "appStoreVersionLocalizations",
-            "id": localization_id,
-            "attributes": mapped_attributes
-        }
-    }
-    result = patch(url, token, payload)
-    return result is not None
-
-# -------------------------------
-# NEW: Fetch Screenshots (Reusable)
-# -------------------------------
-def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
-    """
-    Fetch all screenshots from PREPARE_FOR_SUBMISSION versions.
-    Returns list of dicts.
-    """
-    print(f"[Screenshots] Fetching for app {app_id}...")
-    token = generate_jwt(issuer_id, key_id, private_key)
-    if not token:
-        return []
-
-    # Get PREPARE_FOR_SUBMISSION versions
-    versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
-    if not versions_data or 'data' not in versions_data:
-        return []
-
-    all_screenshots = []
-
-    def process_localization(loc, platform):
-        locale = loc['attributes']['locale']
-        sets_url = loc['relationships']['appScreenshotSets']['links']['related']
-        sets_data = get(sets_url, token)
-        if not sets_data or 'data' not in sets_data:
-            return []
-
-        locale_shots = []
-        for sset in sets_data['data']:
-            disp = sset['attributes']['screenshotDisplayType']
-            shots_url = sset['relationships']['appScreenshots']['links']['related']
-            shots_data = get(shots_url, token)
-            if not shots_data or 'data' not in shots_data:
-                continue
-            for shot in shots_data['data']:
-                asset = shot['attributes']['imageAsset']
-                url = asset['templateUrl'].format(w=asset['width'], h=asset['height'], f='jpg')
-                locale_shots.append({
-                    'localization_id': loc['id'],
-                    'locale': locale,
-                    'display_type': disp,
-                    'url': url,
-                    'width': asset['width'],
-                    'height': asset['height'],
-                    'platform': platform
-                })
-        return locale_shots
-
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = []
-        for version in versions_data['data']:
-            version_id = version['id']
-            platform = version['attributes'].get('platform', 'UNKNOWN')
-            locs_data = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
-            if locs_data and 'data' in locs_data:
-                for loc in locs_data['data']:
-                    futures.append(executor.submit(process_localization, loc, platform))
-        
-        for future in futures:
-            all_screenshots.extend(future.result())
-
-    # Save to DB
     with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS app_screenshots (
-                id TEXT PRIMARY KEY,
-                app_id TEXT,
-                store_id INTEGER,
-                localization_id TEXT,
-                locale TEXT,
-                display_type TEXT,
-                url TEXT,
-                width INTEGER,
-                height INTEGER,
-                platform TEXT
-            )
-        """)
-        for shot in all_screenshots:
-            shot_id = f"{app_id}_{shot['localization_id']}_{shot['display_type']}"
-            cursor.execute("""
-                INSERT OR REPLACE INTO app_screenshots 
-                (id, app_id, store_id, localization_id, locale, display_type, url, width, height, platform)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                shot_id, app_id, store_id,
-                shot['localization_id'], shot['locale'], shot['display_type'],
-                shot['url'], shot['width'], shot['height'], shot['platform']
-            ))
-        conn.commit()
-    print(f"[Screenshots] Saved {len(all_screenshots)} screenshots.")
+        for loc in data['data']:
+            attrs = loc['attributes']
+            safe_insert_or_replace(conn, 'app_version_localizations', {
+                'localization_id': loc['id'],
+                'version_id': version_id,
+                'app_id': loc['relationships']['appStoreVersion']['data']['id'],
+                'store_id': None,
+                'locale': attrs.get('locale'),
+                'description': attrs.get('description'),
+                'keywords': attrs.get('keywords'),
+                'marketing_url': attrs.get('marketingUrl'),
+                'promotional_text': attrs.get('promotionalText'),
+                'support_url': attrs.get('supportUrl'),
+                'whats_new': attrs.get('whatsNew'),
+                'platform': attrs.get('platform')
+            })
+    print(f"Saved {len(data['data'])} version localizations for Version ID: {version_id}")
     sync_db_to_github()
-    return all_screenshots
+    return data
 
-# -------------------------------
-# NEW: Patch Screenshots (Reusable)
-# -------------------------------
+# ===============================
+# Patch + Auto DB Refresh
+# ===============================
+def patch_and_refresh(patch_func, loc_id, attrs, app_id, store_id, issuer_id, key_id, private_key, is_app_info=False):
+    """Patch and refresh DB only if patch succeeds."""
+    print(f"Patching localization ID: {loc_id} | Attribute: {list(attrs.keys())[0]}")
+    success = patch_func(loc_id, attrs, issuer_id, key_id, private_key)
+    if not success:
+        print(f"Patch FAILED for localization ID: {loc_id}. DB not updated.")
+        return False
+
+    print(f"Patch SUCCESS. Refreshing DB for App ID: {app_id}")
+    if is_app_info:
+        info = fetch_app_info(app_id, issuer_id, key_id, private_key)
+        if info and info['data']:
+            app_info_id = info['data'][1]['id'] if len(info['data']) > 1 else info['data'][0]['id']
+            fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
+    else:
+        versions = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
+        if versions and versions['data']:
+            for v in versions['data']:
+                fetch_app_store_version_localizations(v['id'], issuer_id, key_id, private_key)
+    sync_db_to_github()
+    return True
+
+def patch_app_info_localization(loc_id, attrs, issuer_id, key_id, private_key):
+    token = generate_jwt(issuer_id, key_id, private_key)
+    if not token:
+        return False
+    url = f"{BASE_URL}/appInfoLocalizations/{loc_id}"
+    mapped = {ATTRIBUTE_MAPPING.get(k, k): v for k, v in attrs.items() if v is not None}
+    payload = {"data": {"type": "appInfoLocalizations", "id": loc_id, "attributes": mapped}}
+    return patch(url, token, payload) is not None
+
+def patch_app_store_version_localization(loc_id, attrs, issuer_id, key_id, private_key):
+    token = generate_jwt(issuer_id, key_id, private_key)
+    if not token:
+        return False
+    url = f"{BASE_URL}/appStoreVersionLocalizations/{loc_id}"
+    mapped = {ATTRIBUTE_MAPPING.get(k, k): v for k, v in attrs.items() if v is not None}
+    payload = {"data": {"type": "appStoreVersionLocalizations", "id": loc_id, "attributes": mapped}}
+    return patch(url, token, payload) is not None
+
+# ===============================
+# Screenshots (Safe + Full Log)
+# ===============================
+def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
+    """Fetch and save all screenshots."""
+    print(f"Fetching screenshots for App ID: {app_id}")
+    token = generate_jwt(issuer_id, key_id, private_key)
+    if not token:
+        print("JWT failed. Cannot fetch screenshots.")
+        return []
+
+    versions = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
+    if not versions or 'data' not in versions:
+        print("No versions found. Skipping screenshots.")
+        return []
+
+    all_shots = []
+    with ThreadPoolExecutor() as executor:
+        futures = []
+        for v in versions['data']:
+            v_id = v['id']
+            plat = v['attributes'].get('platform')
+            locs = fetch_app_store_version_localizations(v_id, issuer_id, key_id, private_key)
+            if locs and 'data' in locs:
+                for loc in locs['data']:
+                    locale = loc['attributes']['locale']
+                    sets_url = loc['relationships']['appScreenshotSets']['links']['related']
+                    sets = get(sets_url, token)
+                    if sets and 'data' in sets:
+                        for s in sets['data']:
+                            disp = s['attributes']['screenshotDisplayType']
+                            shots_url = s['relationships']['appScreenshots']['links']['related']
+                            shots = get(shots_url, token)
+                            if shots and 'data' in shots:
+                                for shot in shots['data']:
+                                    asset = shot['attributes']['imageAsset']
+                                    url = asset['templateUrl'].format(w=asset['width'], h=asset['height'], f='jpg')
+                                    all_shots.append({
+                                        'localization_id': loc['id'],
+                                        'locale': locale,
+                                        'display_type': disp,
+                                        'url': url,
+                                        'width': asset['width'],
+                                        'height': asset['height'],
+                                        'platform': plat
+                                    })
+
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM app_screenshots WHERE app_id = ? AND store_id = ?", (app_id, store_id))
+        for s in all_shots:
+            sid = f"{app_id}_{s['localization_id']}_{s['display_type']}"
+            safe_insert_or_replace(conn, 'app_screenshots', {
+                'id': sid, 'app_id': app_id, 'store_id': store_id,
+                'localization_id': s['localization_id'], 'locale': s['locale'],
+                'display_type': s['display_type'], 'url': s['url'],
+                'width': s['width'], 'height': s['height'], 'platform': s['platform']
+            })
+    print(f"Saved {len(all_shots)} screenshots for App ID: {app_id}")
+    sync_db_to_github()
+    return all_shots
+
 def patch_screenshots(app_id, store_id, changes, issuer_id, key_id, private_key):
-    """
-    changes = {
-        'shot_id': {'localization_id': ..., 'display_type': ..., 'new_url': ...}
-    }
-    """
+    """Upload new screenshots and refresh DB."""
+    print(f"Uploading {len(changes)} new screenshots for App ID: {app_id}")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
         return False
 
     success = True
-    for shot_id, data in changes.items():
+    for key, data in changes.items():
         loc_id = data['localization_id']
         disp = data['display_type']
         new_url = data['new_url']
+        print(f"Uploading screenshot: {disp} | Locale ID: {loc_id}")
 
-        # Step 1: Find screenshot set
         sets_url = f"{BASE_URL}/appStoreVersionLocalizations/{loc_id}/appScreenshotSets"
-        sets_data = get(sets_url, token)
-        set_id = None
-        for s in sets_data.get('data', []):
-            if s['attributes']['screenshotDisplayType'] == disp:
-                set_id = s['id']
-                break
+        sets = get(sets_url, token)
+        set_id = next((s['id'] for s in sets['data'] if s['attributes']['screenshotDisplayType'] == disp), None)
         if not set_id:
-            print(f"Set not found: {disp}")
+            print(f"Screenshot set not found: {disp}")
             success = False
             continue
 
-        # Step 2: Create new screenshot (upload)
         upload_url = f"{BASE_URL}/appScreenshots"
         payload = {
             "data": {
                 "type": "appScreenshots",
                 "attributes": {"fileName": f"{disp}.jpg", "fileSize": 100000},
-                "relationships": {
-                    "appScreenshotSet": {"data": {"type": "appScreenshotSets", "id": set_id}}
-                }
+                "relationships": {"appScreenshotSet": {"data": {"type": "appScreenshotSets", "id": set_id}}}
             }
         }
-        resp = requests.post(upload_url, json=payload, headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        })
+        resp = requests.post(upload_url, json=payload, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
         if resp.status_code != 201:
-            print(f"Upload init failed: {resp.text}")
+            print(f"Upload init failed: {resp.status_code}")
             success = False
             continue
 
-        upload_data = resp.json()['data']
-        op = upload_data['attributes']['uploadOperations'][0]
-        img_data = requests.get(new_url).content
-        upload_resp = requests.request(op['method'], op['url'], data=img_data, headers=op['headers'])
-        if upload_resp.status_code >= 400:
-            print(f"Upload failed: {upload_resp.text}")
+        op = resp.json()['data']['attributes']['uploadOperations'][0]
+        img = requests.get(new_url).content
+        up = requests.request(op['method'], op['url'], data=img, headers=op['headers'])
+        if up.status_code >= 400:
+            print(f"Image upload failed: {up.status_code}")
             success = False
 
     if success:
-        # Refresh DB
+        print("All screenshots uploaded. Refreshing DB...")
         fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key)
+    else:
+        print("Some uploads failed. DB not refreshed.")
     return success
 
-# -------------------------------
-# Process Single App Data
-# -------------------------------
+# ===============================
+# Process Single App
+# ===============================
 def process_app(app, store_id, issuer_id, key_id, private_key):
+    """Process one app: fetch all data."""
     app_id = app.get("id")
     app_name = app.get("attributes", {}).get("name", "Unknown")
-    print(f"Starting fetch for app: {app_name} (ID: {app_id})")
+    print(f"Processing App: {app_name} | ID: {app_id}")
+
+    if not app_name or app_name == "Unknown":
+        print("App name missing. Skipping.")
+        return app_id, False
 
     with get_db_connection() as conn:
-        cursor = conn.cursor()
-        print(f"Saving app {app_name} to database...")
-        cursor.execute(
-            "INSERT OR REPLACE INTO apps (app_id, store_id, name) VALUES (?, ?, ?)",
-            (app_id, store_id, app_name)
-        )
-        conn.commit()
-        print(f"Saved app {app_name} to database.")
+        safe_insert_or_replace(conn, 'apps', {'app_id': app_id, 'store_id': store_id, 'name': app_name})
 
-    # Fetch app info
-    app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
+    info = fetch_app_info(app_id, issuer_id, key_id, private_key)
+    if not info or not info['data']:
+        print("No app info. Skipping further processing.")
+        return app_id, False
+    app_info_id = info['data'][1]['id'] if len(info['data']) > 1 else info['data'][0]['id']
+    fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
 
-    # Process app info localizations (second appInfo if available, but typically one; assume first for simplicity, adjust if needed)
-    if app_info_data and "data" in app_info_data and app_info_data["data"]:
-        # Take the second element if exists, else first
-        app_info_index = 1 if len(app_info_data["data"]) > 1 else 0
-        app_info_id = app_info_data["data"][app_info_index].get("id")
-        print(f"Processing app info ID {app_info_id} (index {app_info_index}) for app {app_name}...")
-        app_info_localizations = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
-        time.sleep(REQUEST_DELAY)
-        if app_info_localizations and "data" in app_info_localizations:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                for loc in app_info_localizations["data"]:
-                    locale = loc["attributes"].get("locale")
-                    print(f"Saving app info localization for locale {locale}...")
-                    cursor.execute(
-                        """
-                        INSERT OR REPLACE INTO app_info_localizations 
-                        (localization_id, app_id, store_id, locale, name, subtitle, privacy_policy_url, privacy_choices_url) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            loc["id"],
-                            app_id,
-                            store_id,
-                            locale,
-                            loc["attributes"].get("name"),
-                            loc["attributes"].get("subtitle"),
-                            loc["attributes"].get("privacyPolicyUrl"),
-                            loc["attributes"].get("privacyChoicesUrl")
-                        )
-                    )
-                    conn.commit()
-                    print(f"Saved app info localization for locale {locale}.")
-        else:
-            print(f"No app info localizations found for app info ID {app_info_id}.")
-    else:
-        print(f"No app info found for app ID {app_id}.")
+    versions = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
+    if versions and versions['data']:
+        for v in versions['data']:
+            fetch_app_store_version_localizations(v['id'], issuer_id, key_id, private_key)
 
-    # Fetch app store versions with PREPARE_FOR_SUBMISSION
-    versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
-    if versions_data and "data" in versions_data:
-        # Process each version (expected 2: iOS and macOS)
-        for version in versions_data["data"]:
-            version_id = version["id"]
-            platform = version["attributes"].get("platform", "UNKNOWN")
-            print(f"Processing {platform} version ID {version_id} for app {app_name}...")
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT OR REPLACE INTO app_versions (version_id, app_id, store_id, platform) VALUES (?, ?, ?, ?)",
-                    (version_id, app_id, store_id, platform)
-                )
-                conn.commit()
-                print(f"Saved {platform} version ID {version_id}.")
-
-            # Fetch version localizations
-            version_localizations = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
-            time.sleep(REQUEST_DELAY)
-            if version_localizations and "data" in version_localizations:
-                with get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    for loc in version_localizations["data"]:
-                        loc_id = loc["id"]
-                        locale = loc["attributes"].get("locale")
-                        print(f"Saving {platform} version localization for locale {locale}...")
-                        cursor.execute(
-                            """
-                            INSERT OR REPLACE INTO app_version_localizations 
-                            (localization_id, version_id, app_id, store_id, locale, description, keywords, 
-                            marketing_url, promotional_text, support_url, whats_new, platform) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                loc_id,
-                                version_id,
-                                app_id,
-                                store_id,
-                                locale,
-                                loc["attributes"].get("description"),
-                                loc["attributes"].get("keywords"),
-                                loc["attributes"].get("marketingUrl"),
-                                loc["attributes"].get("promotionalText"),
-                                loc["attributes"].get("supportUrl"),
-                                loc["attributes"].get("whatsNew"),
-                                platform
-                            )
-                        )
-                        conn.commit()
-                        print(f"Saved {platform} version localization for locale {locale}.")
-            else:
-                print(f"No {platform} version localizations found for version ID {version_id}.")
-    else:
-        print(f"No app store versions with PREPARE_FOR_SUBMISSION found for app ID {app_id}.")   
-    # -------------------------------
-    # Call: Fetch Screenshots
-    # -------------------------------
     fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key)
-
-    print(f"Completed fetch for app: {app_name} (ID: {app_id})")
-
+    print(f"Completed processing for App: {app_name}")
     sync_db_to_github()
-
     return app_id, True
 
-# -------------------------------------------------
-# NEW: fetch & store data for ONE app only
-# -------------------------------------------------
+# ===============================
+# Single App Refresh
+# ===============================
 def fetch_and_store_single_app(app_id, store_id, issuer_id, key_id, private_key):
-    """
-    Re-run the whole pipeline that `process_app()` does, but for a single app.
-    Returns True on success, False otherwise.
-    """
-    # 1. Get the app record (we need the name for logging)
+    """Refresh data for one app."""
+    print(f"Refreshing single app: {app_id}")
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute("SELECT name FROM apps WHERE app_id = ? AND store_id = ?", (app_id, store_id))
         row = cur.fetchone()
         app_name = row[0] if row else "Unknown"
+    dummy = {"id": app_id, "attributes": {"name": app_name}}
+    success = process_app(dummy, store_id, issuer_id, key_id, private_key)[1]
+    print(f"Single app refresh {'SUCCESS' if success else 'FAILED'}")
+    return success
 
-    print(f"[SYNC SINGLE] Starting refresh for app {app_name} (ID: {app_id}) …")
-
-    # 2. Build a dummy “app” dict that matches what `fetch_all_apps()` returns
-    dummy_app = {"id": app_id, "attributes": {"name": app_name}}
-
-    # 3. Run the same processing logic that the bulk fetch uses
-    try:
-        _, success = process_app(dummy_app, store_id, issuer_id, key_id, private_key)
-        if success:
-            print(f"[SYNC SINGLE] App {app_name} refreshed successfully.")
-            
-            sync_db_to_github()
-
-        else:
-            print(f"[SYNC SINGLE] Failed to refresh app {app_name}.")
-        return success
-    except Exception as e:
-        print(f"[SYNC SINGLE] Exception while refreshing app {app_name}: {e}")
-        return False
-    
-# -------------------------------
-# Fetch and Store All Apps
-# -------------------------------
+# ===============================
+# Fetch All Apps
+# ===============================
 def fetch_and_store_apps(store_id, issuer_id, key_id, private_key):
-    print(f"Starting data fetch for store_id {store_id}...")
+    """Fetch and store all apps."""
+    print(f"Starting full data fetch for Store ID: {store_id}")
     apps = fetch_all_apps(issuer_id, key_id, private_key)
     if not apps:
-        print("No apps found or failed to fetch apps.")
+        print("No apps to process.")
         return False
-    
-    print(f"Processing {len(apps)} apps...")
+
     success_count = 0
     for app in apps:
-        try:
-            app_id, success = process_app(app, store_id, issuer_id, key_id, private_key)
-            if success:
-                success_count += 1
-                print(f"Successfully processed app ID {app_id}.")
-            else:
-                print(f"Failed to process app ID {app_id}.")
-        except Exception as e:
-            print(f"Error processing app ID {app.get('id')}: {e}")
-    
-    print(f"Successfully fetched and stored {success_count}/{len(apps)} apps for store_id {store_id}.")
-
+        _, ok = process_app(app, store_id, issuer_id, key_id, private_key)
+        if ok:
+            success_count += 1
+    print(f"Processed {success_count}/{len(apps)} apps successfully.")
     sync_db_to_github()
-
     return success_count > 0
 
+# ===============================
+# Main Test
+# ===============================
 if __name__ == "__main__":
-    print("Running main.py in test mode...")
+    print("Running in test mode...")
     with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT store_id, issuer_id, key_id, private_key FROM stores LIMIT 1")
-        result = cursor.fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT store_id, issuer_id, key_id, private_key FROM stores LIMIT 1")
+        result = cur.fetchone()
         if result:
-            store_id, issuer_id, key_id, private_key = result
-            print(f"Found test store credentials for store_id {store_id}.")
-            fetch_and_store_apps(store_id, issuer_id, key_id, private_key)
+            print(f"Found test store: {result[0]}")
+            fetch_and_store_apps(*result)
         else:
-            print("No store credentials found in database for testing.")
+            print("No store credentials found in DB.")
