@@ -179,12 +179,19 @@ def login():
         st.session_state.is_admin = False
 
     if not st.session_state.authenticated:
-        st.markdown("<h2 style='text-align:center;'>App Store Metadata Manager</h2>", unsafe_allow_html=True)
+        st.markdown(
+    """
+    <h2 style='text-align:center; margin-bottom: 25px;'>
+        🔒 App Store Metadata Manager
+    </h2>
+    """,
+    unsafe_allow_html=True
+)
         with st.container():
-            col1, col2, col3 = st.columns([1, 2, 1])
+            col1, col2, col3 = st.columns([2, 2, 2])
             with col2:
                 with st.form("login_form", clear_on_submit=True):
-                    st.markdown("### Login Required")
+                    st.markdown("### Login")
                     username = st.text_input("Username")
                     password = st.text_input("Password", type="password")
                     submit = st.form_submit_button("Login")
@@ -466,13 +473,6 @@ def main():
 
     login()
 
-    # Logout
-    if st.sidebar.button("Logout"):
-        for key in ['authenticated', 'user', 'is_admin', 'selected_attribute']:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.rerun()
-
     st.sidebar.success(f"Logged in as: **{st.session_state.user['username']}**")
     if st.session_state.is_admin:
         st.sidebar.success("You are **ADMIN**")
@@ -531,8 +531,6 @@ def main():
                             st.error("Store added, but data fetch failed.")
                     sync_db_to_github()
                     st.rerun()
-    else:
-        st.sidebar.info("Only admins can add stores.")
 
     if stores_df.empty:
         st.warning("No stores assigned!")
@@ -586,6 +584,13 @@ def main():
     app_options = {row['name']: row['app_id'] for _, row in apps_df.iterrows()}
     selected_app_name = st.sidebar.selectbox("Select App", list(app_options.keys()))
     selected_app_id = app_options[selected_app_name]
+
+    # Logout
+    if st.sidebar.button("Logout"):
+        for key in ['authenticated', 'user', 'is_admin', 'selected_attribute']:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
 
     col_title, col_refresh, col_search = st.columns([3, 1, 1])
     with col_title:
