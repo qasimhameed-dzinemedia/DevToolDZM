@@ -764,7 +764,7 @@ def main():
                                     st.session_state["source_text_name"] = name                                   
                                     st.session_state["source_text_subtitle"] = scraped_data['subtitle']  # New: Subtitle
                                     st.session_state["source_text_description"] = app.get("description", "")
-                                    st.success(f"Scraped and copied from **{name}**! (Name: {scraped_data['name'][:50]}..., Subtitle: {scraped_data['subtitle'][:30]}...)")
+                                    st.success(f"Scraped and copied")
                                 else:
                                     # Fallback to API data
                                     st.session_state["source_text_name"] = name
