@@ -340,6 +340,30 @@ def delete_store(store_id):
     conn.close()
 
 # -------------------------------
+# User Management Functions (New)
+# -------------------------------
+def delete_user(user_id):
+    """Delete user and all their store assignments."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_stores WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM users WHERE id = ? AND is_admin = 0", (user_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+def remove_user_store_access(user_id, store_id):
+    """Remove specific store access from user."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_stores WHERE user_id = ? AND store_id = ?", (user_id, store_id))
+    removed = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return removed
+
+# -------------------------------
 # Update DB Attribute
 # -------------------------------
 def update_db_attribute(table, localization_id, attribute, value, store_id):
@@ -491,7 +515,7 @@ def main():
         with col2:
             if st.button("Cancel", key="confirm_no_logout"):
                 del st.session_state['confirm_logout']
-                
+
     st.sidebar.success(f"Logged in as: **{st.session_state.user['username']}**")
     if st.session_state.is_admin:
         st.sidebar.success("You are **ADMIN**")
@@ -528,6 +552,54 @@ def main():
                     conn.commit()
                     st.success("Assigned!")
                     conn.close()
+
+            # --- NEW: Remove Store Access ---
+            st.subheader("Remove Store Access")
+            if not users_df.empty and not stores_df.empty:
+                remove_user_id = st.selectbox("User", users_df['id'], format_func=lambda x: users_df[users_df['id']==x]['username'].iloc[0], key="remove_user_select")
+                remove_store_id = st.selectbox("Store", stores_df['store_id'], format_func=lambda x: stores_df[stores_df['store_id']==x]['name'].iloc[0], key="remove_store_select")
+                if st.button("Remove Access", key="remove_access_btn"):
+                    if remove_user_store_access(remove_user_id, remove_store_id):
+                        st.success("Store access removed!")
+                    else:
+                        st.warning("No access found to remove.")
+                    st.rerun()
+
+                # Confirmation for Remove Access
+                if st.session_state.get('confirm_remove_access', False):
+                    st.warning("Are you sure you want to remove this store access?")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("Confirm", key="confirm_remove_yes"):
+                            if remove_user_store_access(remove_user_id, remove_store_id):
+                                st.success("Store access removed successfully!")
+                            st.rerun()
+                    with col2:
+                        if st.button("Cancel", key="confirm_remove_no"):
+                            del st.session_state['confirm_remove_access']
+                            st.rerun()
+
+            # --- NEW: Delete User ---
+            st.subheader("Delete User")
+            if not users_df.empty:
+                delete_user_id = st.selectbox("User to Delete", users_df['id'], format_func=lambda x: users_df[users_df['id']==x]['username'].iloc[0], key="delete_user_select")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Delete User", key="delete_user_btn"):
+                        st.session_state['confirm_delete_user'] = delete_user_id
+                with col2:
+                    if st.session_state.get('confirm_delete_user') == delete_user_id:
+                        st.warning("Are you sure? This will delete the user and all their store access!")
+                        if st.button("Confirm Delete", key="confirm_delete_yes"):
+                            if delete_user(user_id):
+                                st.success("User deleted successfully!")
+                                del st.session_state['confirm_delete_user']
+                            else:
+                                st.error("Failed to delete user (might be admin).")
+                            st.rerun()
+                        if st.button("Cancel", key="confirm_delete_no"):
+                            del st.session_state['confirm_delete_user']
+                            st.rerun()
 
     # Stores
     stores_df = get_stores()
