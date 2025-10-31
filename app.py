@@ -585,7 +585,7 @@ def main():
     selected_app_name = st.sidebar.selectbox("Select App", list(app_options.keys()))
     selected_app_id = app_options[selected_app_name]
 
-    st.markdown("<br><br><br><br><br>", unsafe_allow_html=True)
+    st.sidebar.markdown("<br><br><br><br><br>", unsafe_allow_html=True)
 
     # --- Logout Button ---
     if st.sidebar.button("Logout", key="logout_main"):
@@ -594,7 +594,7 @@ def main():
         st.sidebar.warning("Are you sure you want to log out?")
         col1, col2 = st.sidebar.columns(2)
         with col1:
-            if st.button("Confirm Logout", key="confirm_yes_logout"):
+            if st.button("Logout", key="confirm_yes_logout"):
                 for key in ['authenticated', 'user', 'is_admin', 'selected_attribute']:
                     if key in st.session_state:
                         del st.session_state[key]
