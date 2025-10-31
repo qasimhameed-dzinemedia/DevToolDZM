@@ -315,24 +315,43 @@ def fetch_app_store_versions(app_id, issuer_id, key_id, private_key):
     return data
 
 def fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key):
-    """Fetch localizations for a version."""
+    """Fetch localizations for a version with 100% safe key access."""
     print(f"Fetching version localizations for Version ID: {version_id}")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
+        print("JWT generation failed.")
         return None
+
     url = f"{BASE_URL}/appStoreVersions/{version_id}/appStoreVersionLocalizations"
     data = get(url, token)
     if not data or 'data' not in data:
-        print(f"No version localizations for Version ID: {version_id}")
+        print(f"No localizations found for Version ID: {version_id}")
         return None
 
+    saved_count = 0
     with get_db_connection() as conn:
         for loc in data['data']:
-            attrs = loc['attributes']
-            safe_insert_or_replace(conn, 'app_version_localizations', {
-                'localization_id': loc['id'],
+            attrs = loc.get('attributes', {})
+
+            # SAFELY extract app_id
+            app_id = None
+            try:
+                rel = loc.get('relationships', {})
+                asv = rel.get('appStoreVersion', {})
+                data_part = asv.get('data', {})
+                app_id = data_part.get('id') if isinstance(data_part, dict) else None
+            except Exception as e:
+                print(f"Error extracting app_id: {e}")
+
+            if not app_id:
+                print(f"Skipping localization {loc.get('id', 'unknown')} — missing app_id")
+                continue
+
+            # Insert only if valid
+            success = safe_insert_or_replace(conn, 'app_version_localizations', {
+                'localization_id': loc.get('id'),
                 'version_id': version_id,
-                'app_id': loc['relationships']['appStoreVersion']['data']['id'],
+                'app_id': app_id,
                 'store_id': None,
                 'locale': attrs.get('locale'),
                 'description': attrs.get('description'),
@@ -343,7 +362,11 @@ def fetch_app_store_version_localizations(version_id, issuer_id, key_id, private
                 'whats_new': attrs.get('whatsNew'),
                 'platform': attrs.get('platform')
             })
-    print(f"Saved {len(data['data'])} version localizations for Version ID: {version_id}")
+
+            if success:
+                saved_count += 1
+
+    print(f"Saved {saved_count}/{len(data['data'])} version localizations for Version ID: {version_id}")
     sync_db_to_github()
     return data
 
