@@ -250,49 +250,27 @@ def search_itunes_apps(term, country, entity):
 # New: Scrape App Store Page for Name, Subtitle, Description
 # -------------------------------
 def scrape_appstore_page(track_view_url):
+    """
+    Scrape the App Store page for name, subtitle, and full description.
+    Returns dict: {'name': str, 'subtitle': str, 'description': str}
+    """
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
     try:
-        response = requests.get(track_view_url, headers=headers, timeout=20)
+        response = requests.get(track_view_url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
-        # --- Subtitle ---
-        subtitle_elem = soup.find('h2', {'data-testid': 'product-subtitle'}) or soup.find('h2', class_='product-header__subtitle')
-        subtitle = subtitle_elem.get_text(strip=True) if subtitle_elem else 'No subtitle'
-
-        # --- Screenshots ---
-        screenshots = []
-        # iPhone screenshots (main)
-        img_tags = soup.find_all('img', {'data-testid': re.compile(r'^screenshot-')}) or soup.find_all('picture', class_='product-screenshot')
-        for img in img_tags:
-            src = img.get('src') or (img.find('source') or {}).get('srcset', '').split(',')[0].strip().split(' ')[0]
-            if src and src.startswith('http') and 'format=jpg' in src:
-                # Clean URL: Remove size suffix like ?w=400
-                clean_url = re.sub(r'\?.*$', '', src)
-                if clean_url not in screenshots:
-                    screenshots.append(clean_url)
-
-        # Fallback: Look for <picture> sources
-        if not screenshots:
-            pictures = soup.find_all('picture')
-            for pic in pictures:
-                source = pic.find('source', srcset=True)
-                if source:
-                    url = source['srcset'].split(',')[0].strip().split(' ')[0]
-                    if url.startswith('http') and 'format=jpg' in url:
-                        clean_url = re.sub(r'\?.*$', '', url)
-                        if clean_url not in screenshots:
-                            screenshots.append(clean_url)
+        # Extract subtitle: h2 below name
+        subtitle_elem = soup.find('h2', class_='product-header__subtitle') or soup.find('div', {'data-testid': 'product-subtitle'})
+        subtitle = subtitle_elem.get_text(strip=True) if subtitle_elem else 'No subtitle available'
 
         return {
-            'subtitle': subtitle,
-            'screenshots': screenshots  # List of full-res image URLs
+            'subtitle': subtitle
         }
-
     except Exception as e:
-        st.error(f"Scraping failed: {e}")
+        st.error(f"Scraping failed for {track_view_url}: {e}")
         return None
     
 # -------------------------------
@@ -745,86 +723,60 @@ def main():
 
     st.caption(f"App ID: `{selected_app_id}`")
 
-    # -------------------------------
-    # iTunes Search – Now with Scraped Screenshots
-    # -------------------------------
+    # iTunes Search – Updated with Scraping
     if st.session_state.get('show_itunes_search'):
         with st.expander("iTunes App Search – Copy Metadata", expanded=True):
             col1, col2, col3 = st.columns([2, 1, 1])
             with col1:
-                search_term = st.text_input("Keywords", placeholder="e.g., photo editor")
+                search_term = st.text_input("Keywords", placeholder="e.g., photo editor, calculator")
             with col2:
                 country = st.selectbox("Country", ["us", "gb", "in", "ca", "au", "de", "fr", "jp"], index=0)
             with col3:
                 entity = st.selectbox("Entity", ["software", "desktopSoftware", "iPadSoftware"])
-
             if st.button("Search"):
                 if search_term.strip():
-                    with st.spinner("Searching iTunes..."):
+                    with st.spinner("Searching..."):
                         results = search_itunes_apps(search_term, country, entity)
                         st.session_state['itunes_results'] = results
                         st.session_state['search_performed'] = True
-
             if st.session_state.get('search_performed'):
                 results = st.session_state.get('itunes_results', [])
                 for app in results:
                     name = app.get("trackName", "Unknown")
                     bundle = app.get("bundleId", "")
-                    track_view_url = app.get("trackViewUrl", "")
+                    track_view_url = app.get("trackViewUrl", "")  # New: Get the URL
                     icon = app.get("artworkUrl100", "")
-                    desc = app.get("description", "")[:120] + "..."
-
+                    desc = app.get("description", "")[:100] + "..."
                     with st.container():
                         c1, c2, c3 = st.columns([1, 5, 2])
                         with c1:
                             if icon: st.image(icon, width=60)
                         with c2:
                             st.markdown(f"**{name}**")
-                            st.markdown(f"[View on iTunes]({track_view_url})", unsafe_allow_html=True)
+                            st.markdown(f"[View on App Store]({track_view_url})")  # New: Link to App Store
                             st.caption(f"`{bundle}`")
                             st.caption(desc)
-
-                            # --- Scrape on Demand ---
-                            if st.button("Show Screenshots", key=f"show_ss_{bundle}"):
-                                with st.spinner("Scraping screenshots..."):
-                                    scraped = scrape_appstore_page(track_view_url)
-                                    if scraped and scraped['screenshots']:
-                                        st.session_state[f"scraped_ss_{bundle}"] = scraped['screenshots']
-                                        st.success(f"Found {len(scraped['screenshots'])} screenshots!")
-                                    else:
-                                        st.warning("No screenshots found on page.")
-                                    st.rerun()
-
-                            # --- Display Scraped Screenshots ---
-                            ss_key = f"scraped_ss_{bundle}"
-                            if ss_key in st.session_state and st.session_state[ss_key]:
-                                with st.expander(f"Screenshots ({len(st.session_state[ss_key])})", expanded=True):
-                                    cols = st.columns(3)
-                                    for idx, url in enumerate(st.session_state[ss_key]):
-                                        with cols[idx % 3]:
-                                            st.image(url, use_column_width=True)
-                                            st.markdown(f"[Download Full-Res]({url})", unsafe_allow_html=True)
-
                         with c3:
                             if st.button("Use This", key=f"use_{bundle}"):
-                                with st.spinner("Scraping full metadata..."):
-                                    scraped = scrape_appstore_page(track_view_url)
-                                    if scraped:
-                                        st.session_state["source_text_name"] = name
-                                        st.session_state["source_text_subtitle"] = scraped['subtitle']
-                                        st.session_state["source_text_description"] = app.get("description", "")
-                                        st.session_state["itunes_screenshots"] = scraped['screenshots']
-                                        # st.success(f"Copied: **{scraped['name']}**")
-                                    else:
-                                        st.session_state["source_text_name"] = name
-                                        st.session_state["source_text_description"] = app.get("description", "")
-                                        st.warning("Scraping failed, using API data.")
-
-                                    if 'selected_attribute' not in st.session_state:
-                                        st.session_state['selected_attribute'] = 'name'
-
-                                    st.session_state['show_itunes_search'] = False
-                                    st.rerun()
+                                # New: Scrape the page first
+                                scraped_data = scrape_appstore_page(track_view_url) if track_view_url else None
+                                if scraped_data:
+                                    st.session_state["source_text_name"] = name                                   
+                                    st.session_state["source_text_subtitle"] = scraped_data['subtitle']  # New: Subtitle
+                                    st.session_state["source_text_description"] = app.get("description", "")
+                                    st.success(f"Scraped and copied")
+                                else:
+                                    # Fallback to API data
+                                    st.session_state["source_text_name"] = name
+                                    st.session_state["source_text_description"] = app.get("description", "")
+                                    st.warning(f"Scraping failed for {name}, using API data as fallback.")
+                                
+                                # New: Auto-select 'name' attribute if not selected (to show fields)
+                                if 'selected_attribute' not in st.session_state or st.session_state['selected_attribute'] not in ['name', 'subtitle']:
+                                    st.session_state['selected_attribute'] = 'name'
+                                
+                                st.session_state['show_itunes_search'] = False
+                                st.rerun()
                     st.markdown("---")
 
     # Editing Area
