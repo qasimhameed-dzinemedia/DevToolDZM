@@ -776,7 +776,7 @@ def main():
                                     st.session_state['selected_attribute'] = 'name'
                                 
                                 st.session_state['show_itunes_search'] = False
-                                st.rerun()
+                                # st.rerun()
                     st.markdown("---")
 
     # Editing Area
