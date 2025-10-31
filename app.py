@@ -741,9 +741,9 @@ def main():
                             success = False
                     if success:
                         st.success("Saved!")
+                        sync_db_to_github()
                     else:
                         st.error("Save failed.")
-                    sync_db_to_github()
                     st.rerun()
 
         platform = None
