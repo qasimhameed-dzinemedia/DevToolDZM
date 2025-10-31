@@ -445,8 +445,8 @@ def translate_text(text, locale):
 # Main Dashboard
 # ===============================
 def main():
-    st.set_page_config(page_title="App Metadata Dashboard", page_icon="Phone", layout="wide")
-    st.title("App Metadata Dashboard")
+    st.set_page_config(page_title="App Metadata Dashboard", page_icon="📊", layout="wide")
+    st.title("📱 App Metadata Dashboard")
 
     # Initialize
     if not check_database_exists():
@@ -507,7 +507,7 @@ def main():
 
     # Add Store (Admin Only)
     if st.session_state.is_admin:
-        with st.sidebar.expander("Add New Store"):
+        with st.sidebar.expander("➕ Add New Store"):
             name = st.text_input("Store Name")
             issuer_id = st.text_input("Issuer ID")
             key_id = st.text_input("Key ID")
@@ -536,7 +536,7 @@ def main():
 
     # Delete Store (Admin)
     if st.session_state.is_admin:
-        if st.sidebar.button("Delete Store", key="delete_current_store"):
+        if st.sidebar.button("🗑️", key="delete_current_store"):
             st.session_state['confirm_delete_store'] = selected_store_id
             st.session_state['confirm_delete_name'] = selected_store_name
 
@@ -557,7 +557,7 @@ def main():
                     st.rerun()
 
     issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
-    if st.sidebar.button("Fetch Data for Store"):
+    if st.sidebar.button(f"🔄 Fetch Data for {selected_store_name} Store"):
         with st.spinner("Fetching all apps..."):
             success = fetch_and_store_apps(selected_store_id, issuer_id, key_id, private_key)
             if success:
@@ -572,7 +572,7 @@ def main():
         st.warning("No apps! Fetch data first.")
         return
 
-    st.sidebar.header("Search Apps")
+    st.sidebar.header("📱 Search Apps")
     app_options = {row['name']: row['app_id'] for _, row in apps_df.iterrows()}
     selected_app_name = st.sidebar.selectbox("Select App", list(app_options.keys()))
     selected_app_id = app_options[selected_app_name]
@@ -646,10 +646,16 @@ def main():
         ]
         for attr in attributes:
             emoji = {
-                'name': 'Name', 'subtitle': 'Subtitle', 'privacy_policy_url': 'Privacy Policy',
-                'privacy_choices_url': 'Privacy Choices', 'description': 'Description',
-                'keywords': 'Keywords', 'marketing_url': 'Marketing URL', 'promotional_text': 'Promo Text',
-                'support_url': 'Support URL', 'whats_new': 'What\'s New'
+                'name': '📛',
+                'subtitle': '📝',
+                'privacy_policy_url': '🔒',
+                'privacy_choices_url': '⚙️',
+                'description': '📖',
+                'keywords': '🔍',
+                'marketing_url': '📣',
+                'promotional_text': '🎉',
+                'support_url': '🛠️',
+                'whats_new': '✨'
             }.get(attr, '')
             col_btn, col_sync = st.columns([3, 1])
             with col_btn:
@@ -668,7 +674,7 @@ def main():
 
         col_btn, col_sync = st.columns([3, 1])
         with col_btn:
-            if st.button("Screenshots", key="attr_screenshots"):
+            if st.button("🖼️ Screenshots", key="attr_screenshots"):
                 st.session_state['selected_attribute'] = 'screenshots'
         with col_sync:
             if st.button("Sync", key="sync_screenshots"):
