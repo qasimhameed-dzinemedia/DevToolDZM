@@ -346,23 +346,18 @@ def patch_app_store_version_localization(localization_id, attributes, issuer_id,
 # NEW: Fetch Screenshots (Reusable)
 # -------------------------------
 def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
-    """
-    Fetch all screenshots from PREPARE_FOR_SUBMISSION versions.
-    Returns list of dicts.
-    """
     print(f"[Screenshots] Fetching for app {app_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
         return []
 
-    # Get PREPARE_FOR_SUBMISSION versions
     versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
     if not versions_data or 'data' not in versions_data:
         return []
 
     all_screenshots = []
 
-    def process_localization(loc, platform):
+    def process_localization(loc, platform, token):
         locale = loc['attributes']['locale']
         sets_url = loc['relationships']['appScreenshotSets']['links']['related']
         sets_data = get(sets_url, token)
@@ -377,15 +372,25 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
             if not shots_data or 'data' not in shots_data:
                 continue
             for shot in shots_data['data']:
-                asset = shot['attributes']['imageAsset']
-                url = asset['templateUrl'].format(w=asset['width'], h=asset['height'], f='jpg')
+                asset = shot['attributes'].get('imageAsset')
+                if not asset or not isinstance(asset, dict):
+                    continue
+                template = asset.get('templateUrl')
+                width = asset.get('width')
+                height = asset.get('height')
+                if not template or not width or not height:
+                    continue
+                try:
+                    url = template.format(w=width, h=height, f='jpg')
+                except (KeyError, ValueError):
+                    continue
                 locale_shots.append({
                     'localization_id': loc['id'],
                     'locale': locale,
                     'display_type': disp,
                     'url': url,
-                    'width': asset['width'],
-                    'height': asset['height'],
+                    'width': width,
+                    'height': height,
                     'platform': platform
                 })
         return locale_shots
@@ -398,12 +403,15 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
             locs_data = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
             if locs_data and 'data' in locs_data:
                 for loc in locs_data['data']:
-                    futures.append(executor.submit(process_localization, loc, platform))
+                    futures.append(executor.submit(process_localization, loc, platform, token))
         
         for future in futures:
-            all_screenshots.extend(future.result())
+            try:
+                all_screenshots.extend(future.result(timeout=30))
+            except Exception as e:
+                print(f"Error in screenshot processing thread: {e}")
 
-    # Save to DB
+    # === SAVE TO DB ===
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
