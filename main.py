@@ -12,7 +12,7 @@ import os
 # GitHub Database Sync
 # ===============================
 def load_db_from_github():
-    """Download latest database from GitHub."""
+    """Download DB from GitHub with corruption check."""
     print("Downloading database from GitHub...")
     token = st.secrets["GITHUB_TOKEN"]
     repo = st.secrets["REPO"]
@@ -21,42 +21,86 @@ def load_db_from_github():
     headers = {"Authorization": f"token {token}"}
 
     res = requests.get(api_url, headers=headers)
-    if res.status_code == 200:
-        data = res.json()
-        download_url = data.get("download_url")
-        if download_url:
-            file_data = requests.get(download_url)
-            with open(db_path, "wb") as f:
-                f.write(file_data.content)
-            print(f"Database loaded from GitHub ({len(file_data.content)} bytes)")
-        else:
-            content = base64.b64decode(data["content"])
-            with open(db_path, "wb") as f:
-                f.write(content)
-            print("Database loaded via Base64 fallback")
+    if res.status_code != 200:
+        print(f"Failed to fetch DB from GitHub: {res.status_code}")
+        return
+
+    data = res.json()
+    download_url = data.get("download_url")
+    if download_url:
+        file_data = requests.get(download_url)
+        content = file_data.content
     else:
-        print(f"Failed to load DB from GitHub: {res.status_code}")
+        content = base64.b64decode(data["content"])
+
+    # Backup old DB
+    backup_path = db_path + ".backup"
+    if os.path.exists(db_path):
+        import shutil
+        shutil.copy2(db_path, backup_path)
+        print(f"Backup created: {backup_path}")
+
+    # Write new DB
+    with open(db_path, "wb") as f:
+        f.write(content)
+
+    # Validate new DB
+    try:
+        conn = sqlite3.connect(db_path, timeout=30)
+        conn.execute("SELECT 1 FROM sqlite_master LIMIT 1")
+        conn.close()
+        print(f"Database loaded and validated ({len(content)} bytes)")
+    except Exception as e:
+        print(f"Downloaded DB is corrupted! Reverting to backup...")
+        if os.path.exists(backup_path):
+            shutil.copy2(backup_path, db_path)
+            print("Reverted to backup DB.")
+        else:
+            print("No backup found. Starting fresh.")
+            os.remove(db_path)
 
 def sync_db_to_github():
-    """Upload current database to GitHub."""
-    print("Syncing database to GitHub...")
+    """Safely upload DB to GitHub with corruption check."""
+    print("Preparing to sync database to GitHub...")
     token = st.secrets["GITHUB_TOKEN"]
     repo = st.secrets["REPO"]
     db_path = st.secrets["DB_PATH"]
     api_url = f"https://api.github.com/repos/{repo}/contents/{db_path}"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
 
-    if not os.path.exists(db_path) or os.path.getsize(db_path) < 1000:
-        print("Database file is missing or too small. Skipping sync.")
+    # Step 1: Check if DB is valid
+    try:
+        conn = sqlite3.connect(db_path, timeout=30)
+        conn.execute("SELECT 1 FROM sqlite_master LIMIT 1")
+        conn.close()
+        print("Database integrity check: PASSED")
+    except Exception as e:
+        print(f"Database is corrupted or locked: {e}")
         return
 
-    with open(db_path, "rb") as f:
-        content = base64.b64encode(f.read()).decode()
+    # Step 2: Only sync if file exists and > 1KB
+    if not os.path.exists(db_path) or os.path.getsize(db_path) < 1024:
+        print("Database file too small or missing. Skipping sync.")
+        return
 
+    # Step 3: Read and encode
+    try:
+        with open(db_path, "rb") as f:
+            content = base64.b64encode(f.read()).decode()
+    except Exception as e:
+        print(f"Failed to read DB file: {e}")
+        return
+
+    # Step 4: Get current SHA
     get_res = requests.get(api_url, headers=headers)
     sha = get_res.json().get("sha") if get_res.status_code == 200 else None
 
-    data = {"message": "Auto-sync: Database update", "content": content, "branch": "main"}
+    # Step 5: Upload
+    data = {
+        "message": "Auto-sync: DB update (safe)",
+        "content": content,
+        "branch": "main"
+    }
     if sha:
         data["sha"] = sha
 

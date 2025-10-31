@@ -47,8 +47,13 @@ def hash_password(password: str) -> str:
 # Database Connection
 # ===============================
 def get_db_connection():
-    """Open SQLite connection."""
-    return sqlite3.connect("app_store_data.db", timeout=30)
+    """Open DB with error handling."""
+    try:
+        return sqlite3.connect("app_store_data.db", timeout=30, check_same_thread=False)
+    except Exception as e:
+        print(f"Cannot open DB: {e}")
+        st.error("Database is corrupted. Please reset.")
+        st.stop()
 
 # ===============================
 # Initialize Database
@@ -168,19 +173,22 @@ def initialize_database():
 # Create Default Admin
 # ===============================
 def create_default_admin():
-    """Create default admin if not exists."""
+    """Create default admin only if DB is healthy."""
     print("Checking for default admin...")
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE is_admin = 1")
-    if not cursor.fetchone():
-        cursor.execute(
-            "INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
-            ("Admin", hash_password("admin123"), 1)
-        )
-        conn.commit()
-        print("Default admin created: Admin / admin123")
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE is_admin = 1")
+        if not cursor.fetchone():
+            cursor.execute(
+                "INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
+                ("admin", hash_password("admin123"), 1)
+            )
+            conn.commit()
+            print("Default admin created: admin / admin123")
+        conn.close()
+    except Exception as e:
+        print(f"Failed to create admin (DB issue): {e}")
 
 # ===============================
 # Login System
@@ -451,8 +459,10 @@ def main():
     # Initialize
     if not check_database_exists():
         initialize_database()
-    load_db_from_github()
-    create_default_admin()
+    else:
+        load_db_from_github()  # Safe load with backup
+
+    create_default_admin()  # Only after DB is ready
     login()
 
     # Logout
