@@ -5,6 +5,7 @@ import pandas as pd
 import google.generativeai as genai
 import requests
 import hashlib
+import os
 from main import (
     fetch_and_store_apps,
     patch_app_info_localization,
@@ -16,37 +17,45 @@ from main import (
     fetch_and_store_single_app,
     patch_screenshots,
     fetch_screenshots,
-    sync_db_to_github
+    sync_db_to_github,
+    load_db_from_github,
+    patch_and_refresh
 )
 
-# -------------------------------
+# ===============================
 # Gemini AI Setup
-# -------------------------------
+# ===============================
 GEMINI_API_KEY = "AIzaSyCoIwS0zRQ0CTl4WY8et_QDTOUrIIuB3iA"
 gemini_model = None
 if GEMINI_API_KEY:
+    print("Configuring Gemini AI...")
     genai.configure(api_key=GEMINI_API_KEY)
     gemini_model = genai.GenerativeModel(
         'gemini-2.5-flash-lite',
         generation_config={"temperature": 0.0}
     )
+    print("Gemini AI ready.")
 
-# -------------------------------
+# ===============================
 # Password Hashing
-# -------------------------------
+# ===============================
 def hash_password(password: str) -> str:
+    """Hash password using SHA-256."""
     return hashlib.sha256(password.encode()).hexdigest()
 
-# -------------------------------
+# ===============================
 # Database Connection
-# -------------------------------
+# ===============================
 def get_db_connection():
+    """Open SQLite connection."""
     return sqlite3.connect("app_store_data.db", timeout=30)
 
-# -------------------------------
+# ===============================
 # Initialize Database
-# -------------------------------
+# ===============================
 def initialize_database():
+    """Create all required tables."""
+    print("Initializing database schema...")
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -152,12 +161,15 @@ def initialize_database():
 
     conn.commit()
     conn.close()
+    print("Database schema initialized.")
     st.success("Database initialized successfully!")
 
-# -------------------------------
+# ===============================
 # Create Default Admin
-# -------------------------------
+# ===============================
 def create_default_admin():
+    """Create default admin if not exists."""
+    print("Checking for default admin...")
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM users WHERE is_admin = 1")
@@ -167,12 +179,14 @@ def create_default_admin():
             ("Admin", hash_password("admin123"), 1)
         )
         conn.commit()
+        print("Default admin created: Admin / admin123")
     conn.close()
 
-# -------------------------------
-# Login
-# -------------------------------
+# ===============================
+# Login System
+# ===============================
 def login():
+    """Handle user login."""
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
         st.session_state.user = None
@@ -181,7 +195,7 @@ def login():
     if not st.session_state.authenticated:
         st.markdown("<h2 style='text-align:center;'>App Store Metadata Manager</h2>", unsafe_allow_html=True)
         with st.container():
-            col1, col2, col3 = st.columns([1, 2, 1])
+            col1, col2, col3 = st.columns([2, 2, 2])
             with col2:
                 with st.form("login_form", clear_on_submit=True):
                     st.markdown("### Login Required")
@@ -203,6 +217,7 @@ def login():
                             st.session_state.authenticated = True
                             st.session_state.user = {"id": user[0], "username": username}
                             st.session_state.is_admin = user[2] == 1
+                            print(f"User logged in: {username} (Admin: {st.session_state.is_admin})")
                             st.success(f"Welcome, {username}!")
                             time.sleep(1)
                             st.rerun()
@@ -210,10 +225,13 @@ def login():
                             st.error("Invalid username or password")
         st.stop()
 
-# -------------------------------
-# Check Database
-# -------------------------------
+# ===============================
+# Check DB Exists
+# ===============================
 def check_database_exists():
+    """Check if database file exists and has tables."""
+    if not os.path.exists("app_store_data.db"):
+        return False
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stores'")
@@ -221,25 +239,30 @@ def check_database_exists():
     conn.close()
     return exists
 
-# -------------------------------
+# ===============================
 # iTunes Search
-# -------------------------------
+# ===============================
 def search_itunes_apps(term, country, entity):
+    """Search apps on iTunes."""
     if not term.strip():
         return []
+    print(f"Searching iTunes: '{term}' | Country: {country} | Entity: {entity}")
     url = "https://itunes.apple.com/search"
     params = {"term": term, "country": country, "entity": entity, "limit": 200}
     try:
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
-        return response.json().get("results", [])
+        results = response.json().get("results", [])
+        print(f"iTunes search returned {len(results)} results.")
+        return results
     except Exception as e:
         st.error(f"Search failed: {e}")
+        print(f"iTunes search error: {e}")
         return []
 
-# -------------------------------
-# Load Data
-# -------------------------------
+# ===============================
+# Load Data from DB
+# ===============================
 def load_app_data(app_id, store_id):
     conn = get_db_connection()
     df = pd.read_sql_query("SELECT * FROM apps WHERE app_id = ? AND store_id = ?", conn, params=(app_id, store_id))
@@ -281,14 +304,16 @@ def get_apps_list(store_id):
     conn.close()
     return df
 
-# -------------------------------
-# Get Stores (Admin: all, User: assigned only)
-# -------------------------------
+# ===============================
+# Get Stores (Admin vs User)
+# ===============================
 def get_stores():
+    """Get stores based on user role."""
     conn = get_db_connection()
     cursor = conn.cursor()
     if st.session_state.get('is_admin', False):
         cursor.execute("SELECT * FROM stores ORDER BY name")
+        print("Admin: Loading all stores.")
     else:
         cursor.execute("""
             SELECT s.* FROM stores s
@@ -296,14 +321,15 @@ def get_stores():
             WHERE us.user_id = ?
             ORDER BY s.name
         """, (st.session_state.user['id'],))
+        print(f"User {st.session_state.user['username']}: Loading assigned stores.")
     columns = [desc[0] for desc in cursor.description]
     df = pd.DataFrame(cursor.fetchall(), columns=columns)
     conn.close()
     return df
 
-# -------------------------------
+# ===============================
 # Store CRUD
-# -------------------------------
+# ===============================
 def get_store_credentials(store_id):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -322,6 +348,7 @@ def add_store(name, issuer_id, key_id, private_key):
     store_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    print(f"New store added: {name} (ID: {store_id})")
     return store_id
 
 def delete_store(store_id):
@@ -331,89 +358,42 @@ def delete_store(store_id):
     cursor.execute("DELETE FROM user_stores WHERE store_id = ?", (store_id,))
     conn.commit()
     conn.close()
+    print(f"Store deleted: ID {store_id}")
 
-# -------------------------------
-# Update DB Attribute
-# -------------------------------
-def update_db_attribute(table, localization_id, attribute, value, store_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        f"UPDATE {table} SET {attribute} = ? WHERE localization_id = ? AND store_id = ?",
-        (value, localization_id, store_id)
-    )
-    conn.commit()
-    conn.close()
-
-# -------------------------------
-# Sync & Attribute Functions
-# -------------------------------
+# ===============================
+# Sync Attribute (Safe)
+# ===============================
 def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_key, platform=None):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    success = True
-
+    """Sync one attribute from API to DB."""
+    print(f"Syncing attribute: {attribute} | App ID: {app_id} | Platform: {platform}")
     if attribute == 'screenshots':
-        return bool(fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key))
-    
-    if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
-        app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
-        if app_info_data and "data" in app_info_data and app_info_data["data"]:
-            app_info_index = 1 if len(app_info_data["data"]) > 1 else 0
-            app_info_id = app_info_data["data"][app_info_index].get("id")
-            app_info_localizations = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
-            if app_info_localizations and "data" in app_info_localizations:
-                for loc in app_info_localizations["data"]:
-                    cursor.execute(
-                        """
-                        INSERT OR REPLACE INTO app_info_localizations 
-                        (localization_id, app_id, store_id, locale, name, subtitle, privacy_policy_url, privacy_choices_url) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            loc["id"], app_id, store_id, loc["attributes"].get("locale"),
-                            loc["attributes"].get("name"), loc["attributes"].get("subtitle"),
-                            loc["attributes"].get("privacyPolicyUrl"), loc["attributes"].get("privacyChoicesUrl")
-                        )
-                    )
-                conn.commit()
-            else:
-                success = False
+        success = bool(fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key))
+    elif attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
+        info = fetch_app_info(app_id, issuer_id, key_id, private_key)
+        if info and info['data']:
+            app_info_id = info['data'][1]['id'] if len(info['data']) > 1 else info['data'][0]['id']
+            success = bool(fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key))
         else:
             success = False
     else:
-        versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
-        if versions_data and "data" in versions_data:
-            for version in versions_data["data"]:
-                version_id = version["id"]
-                version_platform = version["attributes"].get("platform", "UNKNOWN")
-                if platform and version_platform != platform:
+        versions = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
+        if versions and versions['data']:
+            success = True
+            for v in versions['data']:
+                if platform and v['attributes'].get('platform') != platform:
                     continue
-                version_localizations = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
-                if version_localizations and "data" in version_localizations:
-                    for loc in version_localizations["data"]:
-                        cursor.execute(
-                            """
-                            INSERT OR REPLACE INTO app_version_localizations 
-                            (localization_id, version_id, app_id, store_id, locale, description, keywords, 
-                            marketing_url, promotional_text, support_url, whats_new, platform) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                loc["id"], version_id, app_id, store_id, loc["attributes"].get("locale"),
-                                loc["attributes"].get("description"), loc["attributes"].get("keywords"),
-                                loc["attributes"].get("marketingUrl"), loc["attributes"].get("promotionalText"),
-                                loc["attributes"].get("supportUrl"), loc["attributes"].get("whatsNew"), version_platform
-                            )
-                        )
-                    conn.commit()
-                else:
+                if not fetch_app_store_version_localizations(v['id'], issuer_id, key_id, private_key):
                     success = False
         else:
             success = False
-    conn.close()
+    print(f"Sync {'SUCCESS' if success else 'FAILED'} for {attribute}")
+    if success:
+        sync_db_to_github()
     return success
 
+# ===============================
+# Get Attribute Data
+# ===============================
 def get_attribute_data(attribute, app_id, store_id, platform=None):
     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
         table = 'app_info_localizations'
@@ -442,28 +422,37 @@ def get_locales(app_id, store_id):
     conn.close()
     return df['locale'].tolist()
 
+# ===============================
+# Translation
+# ===============================
 def translate_text(text, locale):
+    """Translate using Gemini."""
     if not gemini_model or not text.strip():
         return text
     try:
         prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text."
+        print(f"Translating to {locale}: {text[:50]}...")
         response = gemini_model.generate_content(prompt)
-        return response.text.strip()
+        translated = response.text.strip()
+        print(f"Translation success: {locale}")
+        return translated
     except Exception as e:
         st.error(f"Translation failed: {str(e)}")
+        print(f"Translation error: {e}")
         return text
 
-# -------------------------------
+# ===============================
 # Main Dashboard
-# -------------------------------
+# ===============================
 def main():
-    st.set_page_config(page_title="App Metadata Dashboard", page_icon="📊", layout="wide")
-    st.title("📱 App Metadata Dashboard")
+    st.set_page_config(page_title="App Metadata Dashboard", page_icon="Phone", layout="wide")
+    st.title("App Metadata Dashboard")
 
+    # Initialize
     if not check_database_exists():
         initialize_database()
+    load_db_from_github()
     create_default_admin()
-
     login()
 
     # Logout
@@ -471,6 +460,7 @@ def main():
         for key in ['authenticated', 'user', 'is_admin', 'selected_attribute']:
             if key in st.session_state:
                 del st.session_state[key]
+        print("User logged out.")
         st.rerun()
 
     st.sidebar.success(f"Logged in as: **{st.session_state.user['username']}**")
@@ -492,6 +482,7 @@ def main():
                                         (new_user, hash_password(new_pass), 0))
                         conn.commit()
                         st.success(f"User `{new_user}` created!")
+                        print(f"Admin created user: {new_user}")
                     except sqlite3.IntegrityError:
                         st.error("Username exists!")
                     conn.close()
@@ -508,14 +499,15 @@ def main():
                     cursor.execute("INSERT OR IGNORE INTO user_stores (user_id, store_id) VALUES (?, ?)", (user_id, store_id))
                     conn.commit()
                     st.success("Assigned!")
+                    print(f"Store {store_id} assigned to user {user_id}")
                     conn.close()
 
     # Stores
     stores_df = get_stores()
 
-    # Add Store – ONLY ADMIN
+    # Add Store (Admin Only)
     if st.session_state.is_admin:
-        with st.sidebar.expander("➕ Add New Store"):
+        with st.sidebar.expander("Add New Store"):
             name = st.text_input("Store Name")
             issuer_id = st.text_input("Issuer ID")
             key_id = st.text_input("Key ID")
@@ -523,7 +515,7 @@ def main():
             if st.button("Add Store"):
                 if name and issuer_id and key_id and private_key:
                     store_id = add_store(name, issuer_id, key_id, private_key)
-                    with st.spinner("Fetching..."):
+                    with st.spinner("Fetching data..."):
                         success = fetch_and_store_apps(store_id, issuer_id, key_id, private_key)
                         if success:
                             st.success("Store added and data fetched!")
@@ -542,33 +534,31 @@ def main():
     selected_store_name = st.sidebar.selectbox("Select Store", list(store_options.keys()))
     selected_store_id = store_options[selected_store_name]
 
-    # --- ADMIN: DELETE STORE BUTTON (with confirmation) ---
+    # Delete Store (Admin)
     if st.session_state.is_admin:
-        if st.sidebar.button("🗑️", key="delete_current_store"):
+        if st.sidebar.button("Delete Store", key="delete_current_store"):
             st.session_state['confirm_delete_store'] = selected_store_id
             st.session_state['confirm_delete_name'] = selected_store_name
 
         if st.session_state.get('confirm_delete_store') == selected_store_id:
-            st.sidebar.warning(f"Are you sure you want to delete store '{selected_store_name}'?")
+            st.sidebar.warning(f"Delete store '{selected_store_name}'?")
             col1, col2 = st.sidebar.columns(2)
             with col1:
                 if st.button("Confirm", key="confirm_yes"):
                     delete_store(selected_store_id)
-                    if 'confirm_delete_store' in st.session_state:
-                        del st.session_state['confirm_delete_store']
-                        del st.session_state['confirm_delete_name']
+                    del st.session_state['confirm_delete_store']
+                    del st.session_state['confirm_delete_name']
                     st.success(f"Store `{selected_store_name}` deleted!")
                     st.rerun()
             with col2:
                 if st.button("Cancel", key="confirm_no"):
-                    if 'confirm_delete_store' in st.session_state:
-                        del st.session_state['confirm_delete_store']
-                        del st.session_state['confirm_delete_name']
+                    del st.session_state['confirm_delete_store']
+                    del st.session_state['confirm_delete_name']
                     st.rerun()
 
     issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
-    if st.sidebar.button("🔄 Fetch Data for Store"):
-        with st.spinner("Fetching..."):
+    if st.sidebar.button("Fetch Data for Store"):
+        with st.spinner("Fetching all apps..."):
             success = fetch_and_store_apps(selected_store_id, issuer_id, key_id, private_key)
             if success:
                 st.success("Data fetched!")
@@ -582,7 +572,7 @@ def main():
         st.warning("No apps! Fetch data first.")
         return
 
-    st.sidebar.header("📱 Search Apps")
+    st.sidebar.header("Search Apps")
     app_options = {row['name']: row['app_id'] for _, row in apps_df.iterrows()}
     selected_app_name = st.sidebar.selectbox("Select App", list(app_options.keys()))
     selected_app_id = app_options[selected_app_name]
@@ -598,6 +588,7 @@ def main():
                     st.success("Refreshed!")
                 else:
                     st.error("Refresh failed.")
+            sync_db_to_github()
             st.rerun()
     with col_search:
         if st.button("Search iTunes"):
@@ -610,7 +601,7 @@ def main():
         with st.expander("iTunes App Search – Copy Metadata", expanded=True):
             col1, col2, col3 = st.columns([2, 1, 1])
             with col1:
-                search_term = st.text_input("Keywords", placeholder="e.g., photo editor, calculator")
+                search_term = st.text_input("Keywords", placeholder="e.g., photo editor")
             with col2:
                 country = st.selectbox("Country", ["us", "gb", "in", "ca", "au", "de", "fr", "jp"], index=0)
             with col3:
@@ -655,16 +646,10 @@ def main():
         ]
         for attr in attributes:
             emoji = {
-                'name': '📛',
-                'subtitle': '📝',
-                'privacy_policy_url': '🔒',
-                'privacy_choices_url': '⚙️',
-                'description': '📖',
-                'keywords': '🔍',
-                'marketing_url': '📣',
-                'promotional_text': '🎉',
-                'support_url': '🛠️',
-                'whats_new': '✨'
+                'name': 'Name', 'subtitle': 'Subtitle', 'privacy_policy_url': 'Privacy Policy',
+                'privacy_choices_url': 'Privacy Choices', 'description': 'Description',
+                'keywords': 'Keywords', 'marketing_url': 'Marketing URL', 'promotional_text': 'Promo Text',
+                'support_url': 'Support URL', 'whats_new': 'What\'s New'
             }.get(attr, '')
             col_btn, col_sync = st.columns([3, 1])
             with col_btn:
@@ -674,8 +659,7 @@ def main():
                 if st.button("Sync", key=f"sync_{attr}"):
                     with st.spinner("Syncing..."):
                         platform = st.session_state.get('platform')
-                        success = sync_attribute_data(attr, selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform)
-                        if success:
+                        if sync_attribute_data(attr, selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform):
                             st.success("Synced!")
                             sync_db_to_github()
                         else:
@@ -684,13 +668,12 @@ def main():
 
         col_btn, col_sync = st.columns([3, 1])
         with col_btn:
-            if st.button("🖼️ Screenshots", key="attr_screenshots"):
+            if st.button("Screenshots", key="attr_screenshots"):
                 st.session_state['selected_attribute'] = 'screenshots'
         with col_sync:
             if st.button("Sync", key="sync_screenshots"):
-                with st.spinner("Syncing..."):
-                    success = sync_attribute_data('screenshots', selected_app_id, selected_store_id, issuer_id, key_id, private_key)
-                    if success:
+                with st.spinner("Syncing screenshots..."):
+                    if sync_attribute_data('screenshots', selected_app_id, selected_store_id, issuer_id, key_id, private_key):
                         st.success("Screenshots synced!")
                         sync_db_to_github()
                     else:
@@ -714,7 +697,7 @@ def main():
                 st.markdown("---")
                 changes = {}
                 locales = data['locale'].tolist()
-                # --- SOURCE TEXT BOX: Always empty, user types English ---
+
                 source_text = st.text_area(
                     "Source Text (English)", 
                     value=st.session_state.get(f"source_text_{attr}", ""),
@@ -722,19 +705,17 @@ def main():
                     height=100,
                     key=f"source_input_{attr}"
                 )
-
-                # Save for Translate All
                 st.session_state[f"source_text_{attr}"] = source_text
+
                 if st.button("Translate All"):
                     if not source_text.strip():
-                        st.warning("Please write English text in the source box first.")
+                        st.warning("Please write English text first.")
                     else:
-                        with st.spinner("Translating to all languages..."):
+                        with st.spinner("Translating..."):
                             for loc in locales:
-                                # Treat source as English → translate to ALL locales (including en-US)
                                 translated = translate_text(source_text, loc)
                                 st.session_state[f"auto_{attr}_{loc}"] = translated
-                            time.sleep(4)
+                                time.sleep(4)
                         st.success("All languages translated!")
                         st.rerun()
                 st.markdown("---")
@@ -749,20 +730,23 @@ def main():
                         new_val = st.text_input(locale, value=val, key=f"edit_{loc_id}")
                     changes[loc_id] = new_val or None
                     st.markdown("---")
+
                 if st.button("Save Changes"):
+                    print(f"Saving changes for attribute: {attr}")
                     success = True
                     for loc_id, val in changes.items():
                         func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
-                        if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
+                        is_app_info = 'app_info' in table
+                        if not patch_and_refresh(func, loc_id, {attr: val}, selected_app_id, selected_store_id, issuer_id, key_id, private_key, is_app_info):
                             success = False
                     if success:
-                        st.success("Saved!")
+                        st.success("Saved & DB Updated!")
                         sync_db_to_github()
+                        time.sleep(1)
+                        st.rerun()
                     else:
-                        st.error("Save failed.")
-                    st.rerun()
+                        st.error("Some patches failed. DB not updated.")
 
-        platform = None
         if attr == 'screenshots':
             platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select")
             st.session_state['platform'] = platform
@@ -782,7 +766,6 @@ def main():
                             for idx, row in enumerate(disp_group.itertuples()):
                                 with cols[idx % 3]:
                                     st.image(row.url, caption=f"{row.width}×{row.height}", use_column_width=True)
-                                    # UNIQUE KEY: localization_id + display_type + index
                                     new_url = st.text_input(
                                         "Replace with new URL",
                                         value="",
@@ -802,11 +785,12 @@ def main():
                     else:
                         with st.spinner("Uploading new screenshots..."):
                             if patch_screenshots(selected_app_id, selected_store_id, changes, issuer_id, key_id, private_key):
-                                st.success("Screenshots updated successfully!")
+                                st.success("Screenshots updated & DB refreshed!")
                                 sync_db_to_github()
+                                time.sleep(1)
                                 st.rerun()
                             else:
-                                st.error("Failed to update screenshots. Check console.")
+                                st.error("Upload failed. DB not updated.")
 
     st.markdown("---")
     st.markdown(
