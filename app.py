@@ -262,26 +262,12 @@ def scrape_appstore_page(track_view_url):
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
-        # Extract name: Usually in h1 with class 'product-header__title'
-        name_elem = soup.find('h1', class_='product-header__title') or soup.find('h1', {'data-testid': 'product-title'})
-        name = name_elem.get_text(strip=True) if name_elem else 'Unknown App'
-
         # Extract subtitle: h2 below name
         subtitle_elem = soup.find('h2', class_='product-header__subtitle') or soup.find('div', {'data-testid': 'product-subtitle'})
         subtitle = subtitle_elem.get_text(strip=True) if subtitle_elem else 'No subtitle available'
 
-        # Extract description: Main description section
-        desc_elem = soup.find('div', {'data-testid': 'product-page-description'}) or soup.find('div', class_='product-section__description')
-        if desc_elem:
-            # Clean up description: Remove extra whitespace and join lines
-            description = re.sub(r'\s+', ' ', desc_elem.get_text(strip=True))
-        else:
-            description = 'No description available'
-
         return {
-            'name': name,
-            'subtitle': subtitle,
-            'description': description
+            'subtitle': subtitle
         }
     except Exception as e:
         st.error(f"Scraping failed for {track_view_url}: {e}")
@@ -767,6 +753,7 @@ def main():
                             if icon: st.image(icon, width=60)
                         with c2:
                             st.markdown(f"**{name}**")
+                            st.markdown(f"[View on App Store]({track_view_url})")  # New: Link to App Store
                             st.caption(f"`{bundle}`")
                             st.caption(desc)
                         with c3:
@@ -774,9 +761,9 @@ def main():
                                 # New: Scrape the page first
                                 scraped_data = scrape_appstore_page(track_view_url) if track_view_url else None
                                 if scraped_data:
-                                    st.session_state["source_text_name"] = scraped_data['name']
+                                    st.session_state["source_text_name"] = name                                   
                                     st.session_state["source_text_subtitle"] = scraped_data['subtitle']  # New: Subtitle
-                                    st.session_state["source_text_description"] = scraped_data['description']
+                                    st.session_state["source_text_description"] = app.get("description", "")
                                     st.success(f"Scraped and copied from **{name}**! (Name: {scraped_data['name'][:50]}..., Subtitle: {scraped_data['subtitle'][:30]}...)")
                                 else:
                                     # Fallback to API data
