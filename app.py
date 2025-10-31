@@ -780,6 +780,7 @@ def main():
                             if icon: st.image(icon, width=60)
                         with c2:
                             st.markdown(f"**{name}**")
+                            st.markdown(f"[View on iTunes]({track_view_url})", unsafe_allow_html=True)
                             st.caption(f"`{bundle}`")
                             st.caption(desc)
 
