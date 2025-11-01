@@ -911,46 +911,67 @@ def main():
             platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select")
             st.session_state['platform'] = platform
             st.markdown("---")
+            
             df = load_screenshots(selected_app_id, selected_store_id, platform)
             if df.empty:
                 st.warning(f"No screenshots found for {platform}.")
             else:
                 st.markdown(f"#### Editing Screenshots for {platform}")
                 st.markdown("---")
+                
                 changes = {}
+                
+                # Group by locale
                 for locale, loc_group in df.groupby('locale'):
-                    with st.expander(locale):
-                        for disp, disp_group in loc_group.groupby('display_type'):
-                            st.markdown(f"**{disp}**")
-                            cols = st.columns(3)
-                            for idx, row in enumerate(disp_group.itertuples()):
-                                with cols[idx % 3]:
-                                    st.image(row.url, caption=f"{row.width}×{row.height}", use_column_width=True)
-                                    # UNIQUE KEY: localization_id + display_type + index
-                                    new_url = st.text_input(
-                                        "Replace with new URL",
-                                        value="",
-                                        key=f"shot_{row.localization_id}_{disp}_{idx}",
-                                        placeholder="https://example.com/image.jpg"
-                                    )
-                                    if new_url.strip():
-                                        changes[f"{row.localization_id}_{disp}_{idx}"] = {
-                                            'localization_id': row.localization_id,
-                                            'display_type': disp,
-                                            'new_url': new_url.strip()
-                                        }
+                    with st.expander(f"{locale.upper()} Locale", expanded=True):
+                        # Group by display_type within locale
+                        for disp_type, disp_group in loc_group.groupby('display_type'):
+                            st.markdown(f"**{disp_type.replace('_', ' ').title()}**")
+                            
+                            # Create dynamic columns based on number of screenshots (max 5 per row)
+                            screenshots = list(disp_group.itertuples())
+                            n_screenshots = len(screenshots)
+                            cols_per_row = min(n_screenshots, 5)
+                            rows = (n_screenshots + cols_per_row - 1) // cols_per_row
 
-                if st.button("Save Changes", key="save_screenshots"):
+                            for row_idx in range(rows):
+                                start_idx = row_idx * cols_per_row
+                                end_idx = min(start_idx + cols_per_row, n_screenshots)
+                                cols = st.columns(cols_per_row)
+                                
+                                for idx, row in enumerate(screenshots[start_idx:end_idx]):
+                                    with cols[idx]:
+                                        # Show current screenshot
+                                        st.image(row.url, caption=f"{row.width}×{row.height}", use_column_width=True)
+                                        
+                                        # Input for new URL
+                                        new_url = st.text_input(
+                                            "New URL",
+                                            value="",
+                                            key=f"shot_{row.localization_id}_{disp_type}_{row.Index}",
+                                            placeholder="https://example.com/image.jpg"
+                                        )
+                                        
+                                        if new_url.strip():
+                                            changes[f"{row.localization_id}_{disp_type}_{row.Index}"] = {
+                                                'localization_id': row.localization_id,
+                                                'display_type': disp_type,
+                                                'new_url': new_url.strip()
+                                            }
+                            st.markdown("---")
+
+                # Save Button
+                if st.button("Save Screenshot Changes", key="save_screenshots"):
                     if not changes:
-                        st.warning("No changes to save.")
+                        st.warning("No changes detected.")
                     else:
-                        with st.spinner("Uploading new screenshots..."):
+                        with st.spinner("Updating screenshots..."):
                             if patch_screenshots(selected_app_id, selected_store_id, changes, issuer_id, key_id, private_key):
-                                st.success("Screenshots updated successfully!")
+                                st.success("All screenshots updated successfully!")
                                 sync_db_to_github()
                                 st.rerun()
                             else:
-                                st.error("Failed to update screenshots. Check console.")
+                                st.error("Failed to update screenshots.")
 
     st.markdown("---")
     st.markdown(
