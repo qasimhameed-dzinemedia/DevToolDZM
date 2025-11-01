@@ -512,17 +512,7 @@ def translate_text(text, locale):
     except Exception as e:
         st.error(f"Translation failed: {str(e)}")
         return text
-
-import sqlite3
-conn = sqlite3.connect("app_store_data.db")
-df = conn.execute("""
-    SELECT locale, display_type, COUNT(*) as count 
-    FROM app_screenshots 
-    WHERE app_id = 'YOUR_APP_ID' AND platform = 'IOS'
-    GROUP BY locale, display_type
-""").fetchall()
-print(df)
-conn.close()
+    
 # -------------------------------
 # Main Dashboard
 # -------------------------------
@@ -716,7 +706,7 @@ def main():
     selected_app_id = app_options[selected_app_name]
 
     # ------------------------------------------------------------------
-    #  Check Localization – Simple: CODE → Full Name
+    #  Check Localization – Sirf DB ke Locale Codes (No Mapping)
     # ------------------------------------------------------------------
     if st.sidebar.button("Check Localization", key="btn_check_loc"):
         st.session_state["show_loc_table"] = True
@@ -725,43 +715,7 @@ def main():
     if st.session_state.get("show_loc_table"):
         st.markdown("## Localization Coverage")
 
-        # ---- Locale mapping ----
-        locale_names = {
-            "AR-SA": "Arabic (Saudi Arabia)",
-            "DA":    "Danish",
-            "DE-DE": "German (Germany)",
-            "EN-AU": "English (Australia)",
-            "EN-CA": "English (Canada)",
-            "EN-GB": "English (United Kingdom)",
-            "EN-US": "English (United States)",
-            "ES-ES": "Spanish (Spain)",
-            "ES-MX": "Spanish (Mexico)",
-            "FI":    "Finnish",
-            "FR-CA": "French (Canada)",
-            "FR-FR": "French (France)",
-            "HE":    "Hebrew",
-            "HI":    "Hindi",
-            "HR":    "Croatian",
-            "HU":    "Hungarian",
-            "ID":    "Indonesian",
-            "IT":    "Italian",
-            "JA":    "Japanese",
-            "KO":    "Korean",
-            "MS":    "Malay",
-            "NL-NL": "Dutch (Netherlands)",
-            "PL":    "Polish",
-            "PT-BR": "Portuguese (Brazil)",
-            "PT-PT": "Portuguese (Portugal)",
-            "RU":    "Russian",
-            "TH":    "Thai",
-            "TR":    "Turkish",
-            "UK":    "Ukrainian",
-            "VI":    "Vietnamese",
-            "ZH-HANS": "Chinese (Simplified)",
-            "ZH-HANT": "Chinese (Traditional)",
-        }
-
-        # ---- Get data from DB ----
+        # ---- Get data from DB (No mapping) ----
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -788,23 +742,19 @@ def main():
             st.markdown("---")
 
             for idx, (app_name, locale_csv) in enumerate(rows, start=1):
-                codes = [c.strip().upper() for c in (locale_csv or "").split(",") if c.strip()]
-                langs = []
-                for code in codes:
-                    if code in locale_names:
-                        langs.append(f"`{code}` → {locale_names[code]}")
-                if not langs:
-                    langs = ["`EN-US` → English (United States)"]
+                # Sirf DB se aaye codes
+                codes = [c.strip() for c in (locale_csv or "").split(",") if c.strip()]
+                if not codes:
+                    codes = ["en-US"]  # fallback
 
-                # Sort by full name
-                langs.sort(key=lambda x: x.split("→")[-1].strip())
+                # Sort alphabetically
+                codes.sort()
 
-                # Language count
-                lang_count = len(langs)
+                lang_count = len(codes)
+                lang_line = " | ".join([f"`{code}`" for code in codes])
 
                 st.markdown(f"**{idx}. {app_name}** — `{lang_count}` language{'s' if lang_count != 1 else ''}")
-
-                st.caption(" | ".join(langs))
+                st.caption(lang_line)
                 st.markdown("---")
 
         # ---- Close button ----
