@@ -393,6 +393,7 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
                     'height': height,
                     'platform': platform
                 })
+                print(f"[Screenshots] Found {platform} screenshot: {locale} - {disp} - {url}")
         return locale_shots
 
     with ThreadPoolExecutor(max_workers=5) as executor:
