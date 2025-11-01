@@ -715,59 +715,40 @@ def main():
     selected_app_name = st.sidebar.selectbox("Select App", list(app_options.keys()))
     selected_app_id = app_options[selected_app_name]
 
-    # -------------------------------
-    # NEW: Check Localization Button
-    # -------------------------------
-    if st.sidebar.button("Check Localization", key="check_localization"):
-        st.session_state['show_localization_check'] = True
+    # --- Simple Check Localization Button ---
+    if st.sidebar.button("Check Localization", key="btn_check_loc"):
+        st.session_state['check_loc'] = True
 
-    if st.session_state.get('show_localization_check', False):
-        with st.expander("Localization Status for All Apps", expanded=True):
-            conn = get_db_connection()
-            query = """
-            SELECT 
-                a.app_id,
-                a.name AS app_name,
-                COALESCE(ail.locale, avl.locale) AS locale
+    # --- Show Simple List on Main Page ---
+    if st.session_state.get('check_loc'):
+        st.markdown("## Localization Status")
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT a.name, 
+                GROUP_CONCAT(DISTINCT COALESCE(ail.locale, avl.locale)) AS locales
             FROM apps a
             LEFT JOIN app_info_localizations ail ON a.app_id = ail.app_id AND a.store_id = ail.store_id
             LEFT JOIN app_version_localizations avl ON a.app_id = avl.app_id AND a.store_id = avl.store_id
             WHERE a.store_id = ?
-            ORDER BY a.name, locale
-            """
-            df = pd.read_sql_query(query, conn, params=(selected_store_id,))
-            conn.close()
+            GROUP BY a.app_id, a.name
+            ORDER BY a.name
+        """, (selected_store_id,))
+        
+        results = cursor.fetchall()
+        conn.close()
 
-            if df.empty:
-                st.info("No localization data found for this store.")
-            else:
-                # Pivot to show apps as rows, locales as columns
-                pivot = df.pivot_table(
-                    index=['app_id', 'app_name'],
-                    columns='locale',
-                    values='locale',
-                    aggfunc='count',
-                    fill_value=0
-                )
-                pivot = pivot.astype(bool)  # Show True/False instead of count
-                pivot.columns = [f"**{col.upper()}**" for col in pivot.columns]  # Bold locales
-                pivot = pivot.reset_index().drop(columns='app_id')
-
-                st.markdown("### Localization Coverage")
-                st.dataframe(
-                    pivot,
-                    use_container_width=True,
-                    column_config={
-                        "app_name": "App Name",
-                        **{f"**{col.upper()}**": st.column_config.CheckboxColumn(col.upper(), default=False) 
-                        for col in df['locale'].unique()}
-                    }
-                )
-
-                # Summary
-                total_apps = df['app_name'].nunique()
-                total_locales = df['locale'].nunique()
-                st.caption(f"**{total_apps}** apps | **{total_locales}** locales available")
+        if not results:
+            st.info("No apps or localization data found.")
+        else:
+            for app_name, locales in results:
+                locale_list = ', '.join(sorted([loc.upper() for loc in (locales or '').split(',') if loc])) if locales else "English only"
+                st.markdown(f"**{app_name}** → {locale_list}")
+        
+        if st.button("Close"):
+            del st.session_state['check_loc']
+            st.rerun()
 
     col_title, col_refresh, col_search = st.columns([3, 1, 1])
     with col_title:
