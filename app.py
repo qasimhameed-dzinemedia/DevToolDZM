@@ -716,7 +716,7 @@ def main():
     selected_app_id = app_options[selected_app_name]
 
     # ------------------------------------------------------------------
-    #  Check Localization – Table with full locale names
+    #  Check Localization – Show CODE + FULL NAME with HORIZONTAL SCROLL
     # ------------------------------------------------------------------
     if st.sidebar.button("Check Localization", key="btn_check_loc"):
         st.session_state["show_loc_table"] = True
@@ -725,7 +725,7 @@ def main():
     if st.session_state.get("show_loc_table"):
         st.markdown("## Localization Coverage")
 
-        # ---- Full locale name mapping (all the codes you gave) ----
+        # ---- Full locale name mapping (all 33 locales) ----
         locale_names = {
             "AR-SA": "Arabic (Saudi Arabia)",
             "DA":    "Danish",
@@ -786,26 +786,64 @@ def main():
             table = []
             for app_name, locale_csv in rows:
                 codes = [c.strip().upper() for c in (locale_csv or "").split(",") if c.strip()]
-                # keep only the ones we know about
-                full = [locale_names.get(c, c) for c in codes if c in locale_names]
-                # fallback to English (US) if nothing was found
-                if not full:
-                    full = [locale_names["EN-US"]]
-                # sort alphabetically
-                full.sort()
-                table.append({"App Name": app_name, "Localized In": ", ".join(full)})
+                # Keep only known locales
+                pairs = []
+                for code in codes:
+                    if code in locale_names:
+                        pairs.append(f"`{code}` → {locale_names[code]}")
+                # Fallback
+                if not pairs:
+                    pairs = ["`EN-US` → English (United States)"]
+                # Sort by full name
+                pairs.sort(key=lambda x: x.split("→")[-1].strip())
+                table.append({
+                    "App Name": app_name,
+                    "Languages": "<br>".join(pairs)
+                })
 
             df = pd.DataFrame(table)
 
+            # ---- HORIZONTAL SCROLL + HTML for Code + Name ----
+            st.markdown(
+                """
+                <style>
+                .scroll-table {
+                    overflow-x: auto;
+                    white-space: nowrap;
+                    border: 1px solid #ddd;
+                    border-radius: 8px;
+                    padding: 8px;
+                    background: #fafafa;
+                }
+                .scroll-table table {
+                    min-width: 100%;
+                    width: max-content;
+                }
+                .lang-code {
+                    background: #e3f2fd;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    font-weight: bold;
+                    color: #1976d2;
+                }
+                </style>
+                <div class="scroll-table">
+                """,
+                unsafe_allow_html=True
+            )
+
             st.dataframe(
                 df,
-                use_container_width=True,
+                use_container_width=False,
                 hide_index=True,
                 column_config={
                     "App Name": st.column_config.TextColumn("App Name", width="medium"),
-                    "Localized In": st.column_config.TextColumn("Localized In", width="large"),
-                },
+                    "Languages": st.column_config.HtmlColumn("Languages", width="large")
+                }
             )
+
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # ---- Close button ----------------------------------------------------
         if st.button("Close", key="close_loc_table"):
