@@ -947,7 +947,6 @@ def main():
                     st.rerun()
 
     with col_right:
-        # === INSIDE with col_right: (after selecting attribute) ===
         attr = st.session_state.get('selected_attribute')
         if attr and attr != 'screenshots':
             platform = None
@@ -957,6 +956,7 @@ def main():
                 st.markdown("---")
 
             data, table = get_attribute_data(attr, selected_app_id, selected_store_id, platform)
+            # === AFTER: data, table = get_attribute_data(...) ===
             if data.empty:
                 st.warning(f"No data found for {attr.capitalize()}.")
             else:
@@ -971,31 +971,42 @@ def main():
                 source_text = st.text_area(
                     "Source Text (English)", 
                     value=st.session_state.get(f"source_text_{attr}", ""),
-                    placeholder="Write your text in English...",
+                    placeholder="Write your text in English..." if attr not in ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url'] else "Enter URL...",
                     height=100,
                     key=f"source_input_{attr}"
                 )
                 st.session_state[f"source_text_{attr}"] = source_text
 
                 # -------------------------------
-                # TRANSLATE ALL BUTTON (Conditional)
+                # TRANSLATE ALL (Only for Text Fields)
                 # -------------------------------
-                if st.button("Translate All"):
-                    if not source_text.strip():
-                        st.warning("Please write English text in the source box first.")
-                    else:
-                        # === ONLY TRANSLATE NON-URL FIELDS ===
-                        translatable_attrs = ['name', 'subtitle', 'description', 'keywords', 'promotional_text', 'whats_new']
-                        if attr in translatable_attrs:
-                            with st.spinner("Translating to all languages..."):
+                text_attrs = ['name', 'subtitle', 'description', 'keywords', 'promotional_text', 'whats_new']
+                if attr in text_attrs:
+                    if st.button("Translate All"):
+                        if not source_text.strip():
+                            st.warning("Please write English text first.")
+                        else:
+                            with st.spinner("Translating..."):
                                 for loc in locales:
                                     translated = translate_text(source_text, loc)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
-                                    time.sleep(2)  # Be gentle on Gemini
-                            st.success("All languages translated!")
+                            st.success("Translated to all languages!")
+                            # NO st.rerun() — UI auto update hoga
+
+                # -------------------------------
+                # FILL ALL (Only for URL Fields)
+                # -------------------------------
+                url_attrs = ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']
+                if attr in url_attrs:
+                    if st.button("Fill All Locales"):
+                        if not source_text.strip():
+                            st.warning("Please enter a URL in the box above.")
                         else:
-                            st.info("URLs are not translated. Please fill them manually.")
-                        st.rerun()
+                            for loc in locales:
+                                st.session_state[f"auto_{attr}_{loc}"] = source_text.strip()
+                            st.success(f"Filled '{attr}' for all {len(locales)} locales!")
+                            # NO st.rerun()
+
                 st.markdown("---")
 
                 # -------------------------------
@@ -1006,25 +1017,20 @@ def main():
                     locale = row['locale']
                     current_val = row[attr] or ""
 
-                    # Auto-filled from translation (only for text fields)
-                    if f"auto_{attr}_{locale}" in st.session_state:
-                        val = st.session_state[f"auto_{attr}_{locale}"]
-                    else:
-                        val = current_val
+                    # Auto-filled value (from Translate or Fill All)
+                    val = st.session_state.get(f"auto_{attr}_{locale}", current_val)
 
-                    # === URL FIELDS: NO TRANSLATION, JUST INPUT ===
-                    if attr in ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']:
+                    if attr in url_attrs:
                         new_val = st.text_input(
-                            f"{locale.upper()}",
+                            locale.upper(),
                             value=val,
                             key=f"edit_{loc_id}",
                             placeholder="https://..."
                         )
                     else:
-                        # Text fields: text_area
                         height = 160 if attr in ['description', 'promotional_text', 'whats_new'] else 80
                         new_val = st.text_area(
-                            f"{locale.upper()}",
+                            locale.upper(),
                             value=val,
                             key=f"edit_{loc_id}",
                             height=height
@@ -1043,11 +1049,15 @@ def main():
                         if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
                             success = False
                     if success:
-                        st.success("Saved!")
+                        st.success("Saved successfully!")
                         sync_db_to_github()
+                        # Optional: Clear auto-fill after save
+                        for loc in locales:
+                            key = f"auto_{attr}_{loc}"
+                            if key in st.session_state:
+                                del st.session_state[key]
                     else:
                         st.error("Save failed.")
-                    st.rerun()
 
         platform = None
         if attr == 'screenshots':
