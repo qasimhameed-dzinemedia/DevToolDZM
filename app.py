@@ -921,35 +921,46 @@ def main():
                 
                 changes = {}
                 
-                # Group by locale
                 for locale, loc_group in df.groupby('locale'):
                     with st.expander(f"{locale.upper()} Locale", expanded=True):
-                        # Group by display_type within locale
                         for disp_type, disp_group in loc_group.groupby('display_type'):
-                            st.markdown(f"**{disp_type.replace('_', ' ').title()}**")
+                            # Clean display type name
+                            clean_name = disp_type.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').title()
+                            count = len(disp_group)
+                            st.markdown(f"**{clean_name}** ({count} screenshot{'' if count == 1 else 's'})")
                             
-                            # Create dynamic columns based on number of screenshots (max 5 per row)
+                            # Get list of screenshots
                             screenshots = list(disp_group.itertuples())
-                            n_screenshots = len(screenshots)
-                            cols_per_row = min(n_screenshots, 5)
-                            rows = (n_screenshots + cols_per_row - 1) // cols_per_row
+                            n = len(screenshots)
+                            
+                            # Dynamic columns: max 4 per row
+                            cols_per_row = min(n, 4)
+                            rows_needed = (n + cols_per_row - 1) // cols_per_row
 
-                            for row_idx in range(rows):
-                                start_idx = row_idx * cols_per_row
-                                end_idx = min(start_idx + cols_per_row, n_screenshots)
-                                cols = st.columns(cols_per_row)
+                            for row_idx in range(rows_needed):
+                                start = row_idx * cols_per_row
+                                end = min(start + cols_per_row, n)
+                                current_batch = screenshots[start:end]
                                 
-                                for idx, row in enumerate(screenshots[start_idx:end_idx]):
+                                # Create exact number of columns for this row
+                                cols = st.columns(len(current_batch))
+                                
+                                for idx, row in enumerate(current_batch):
                                     with cols[idx]:
-                                        # Show current screenshot
-                                        st.image(row.url, caption=f"{row.width}×{row.height}", use_column_width=True)
+                                        # --- IMAGE (Fixed Size) ---
+                                        st.image(
+                                            row.url,
+                                            use_column_width=True,  # This now works because column is narrow
+                                            caption=f"{row.width}×{row.height}"
+                                        )
                                         
-                                        # Input for new URL
+                                        # --- INPUT BOX (Compact) ---
                                         new_url = st.text_input(
-                                            "New URL",
+                                            "Replace URL",
                                             value="",
                                             key=f"shot_{row.localization_id}_{disp_type}_{row.Index}",
-                                            placeholder="https://example.com/image.jpg"
+                                            placeholder="Paste new image URL",
+                                            label_visibility="collapsed"  # Hide label to save space
                                         )
                                         
                                         if new_url.strip():
@@ -958,20 +969,22 @@ def main():
                                                 'display_type': disp_type,
                                                 'new_url': new_url.strip()
                                             }
-                            st.markdown("---")
+                            
+                            st.markdown("---")  # Separator between display types
 
-                # Save Button
-                if st.button("Save Screenshot Changes", key="save_screenshots"):
+                # === SAVE BUTTON ===
+                if st.button("Save All Screenshot Changes", key="save_screenshots"):
                     if not changes:
-                        st.warning("No changes detected.")
+                        st.warning("No new URLs entered.")
                     else:
-                        with st.spinner("Updating screenshots..."):
-                            if patch_screenshots(selected_app_id, selected_store_id, changes, issuer_id, key_id, private_key):
-                                st.success("All screenshots updated successfully!")
+                        with st.spinner("Updating screenshots on App Store Connect..."):
+                            success = patch_screenshots(selected_app_id, selected_store_id, changes, issuer_id, key_id, private_key)
+                            if success:
+                                st.success("Screenshots updated successfully!")
                                 sync_db_to_github()
                                 st.rerun()
                             else:
-                                st.error("Failed to update screenshots.")
+                                st.error("Failed to update. Check URLs or permissions.")
 
     st.markdown("---")
     st.markdown(
