@@ -716,7 +716,7 @@ def main():
     selected_app_id = app_options[selected_app_name]
 
     # ------------------------------------------------------------------
-    #  Check Localization – CODE + FULL NAME + HORIZONTAL SCROLL (OLD STREAMLIT FIX)
+    #  Check Localization – Table with full locale names
     # ------------------------------------------------------------------
     if st.sidebar.button("Check Localization", key="btn_check_loc"):
         st.session_state["show_loc_table"] = True
@@ -725,7 +725,7 @@ def main():
     if st.session_state.get("show_loc_table"):
         st.markdown("## Localization Coverage")
 
-        # ---- Full locale name mapping (all 33 locales) ----
+        # ---- Full locale name mapping (all the codes you gave) ----
         locale_names = {
             "AR-SA": "Arabic (Saudi Arabia)",
             "DA":    "Danish",
@@ -783,47 +783,29 @@ def main():
         if not rows:
             st.info("No apps or localization data found for this store.")
         else:
-            # Build HTML table
-            html = """
-            <div style="overflow-x:auto; border:1px solid #ddd; border-radius:8px; padding:10px; background:#fafafa;">
-            <table style="width:100%; min-width:600px; border-collapse:collapse;">
-                <thead>
-                    <tr style="background:#e3f2fd; text-align:left;">
-                        <th style="padding:12px; border-bottom:2px solid #ddd; font-weight:bold;">App Name</th>
-                        <th style="padding:12px; border-bottom:2px solid #ddd; font-weight:bold;">Languages</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
-
+            table = []
             for app_name, locale_csv in rows:
                 codes = [c.strip().upper() for c in (locale_csv or "").split(",") if c.strip()]
-                pairs = []
-                for code in codes:
-                    if code in locale_names:
-                        pairs.append(
-                            f'<code style="background:#bbdefb;padding:3px 7px;border-radius:4px;color:#1565c0;font-weight:bold;">{code}</code> → {locale_names[code]}'
-                        )
-                if not pairs:
-                    pairs = ['<code style="background:#bbdefb;padding:3px 7px;border-radius:4px;color:#1565c0;font-weight:bold;">EN-US</code> → English (United States)']
+                # keep only the ones we know about
+                full = [locale_names.get(c, c) for c in codes if c in locale_names]
+                # fallback to English (US) if nothing was found
+                if not full:
+                    full = [locale_names["EN-US"]]
+                # sort alphabetically
+                full.sort()
+                table.append({"App Name": app_name, "Localized In": ", ".join(full)})
 
-                # Sort by full name
-                pairs.sort(key=lambda x: x.split("→")[-1].strip())
+            df = pd.DataFrame(table)
 
-                html += f"""
-                    <tr>
-                        <td style="padding:12px; border-bottom:1px solid #eee; vertical-align:top; font-weight:500;">{app_name}</td>
-                        <td style="padding:12px; border-bottom:1px solid #eee; vertical-align:top;">{'<br>'.join(pairs)}</td>
-                    </tr>
-                """
-
-            html += """
-                </tbody>
-            </table>
-            </div>
-            """
-
-            st.markdown(html, unsafe_allow_html=True)
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "App Name": st.column_config.TextColumn("App Name", width="medium"),
+                    "Localized In": st.column_config.TextColumn("Localized In", width="large"),
+                },
+            )
 
         # ---- Close button ----------------------------------------------------
         if st.button("Close", key="close_loc_table"):
