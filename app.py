@@ -783,7 +783,11 @@ def main():
         if not rows:
             st.info("No localization data found.")
         else:
-            for app_name, locale_csv in rows:
+            total_apps = len(rows)
+            st.markdown(f"**Total Apps:** `{total_apps}`")
+            st.markdown("---")
+
+            for idx, (app_name, locale_csv) in enumerate(rows, start=1):
                 codes = [c.strip().upper() for c in (locale_csv or "").split(",") if c.strip()]
                 langs = []
                 for code in codes:
@@ -791,10 +795,11 @@ def main():
                         langs.append(f"`{code}` → {locale_names[code]}")
                 if not langs:
                     langs = ["`EN-US` → English (United States)"]
+
                 # Sort by full name
                 langs.sort(key=lambda x: x.split("→")[-1].strip())
 
-                st.markdown(f"**{app_name}**")
+                st.markdown(f"**{idx}. {app_name}**")
                 st.caption(" | ".join(langs))
                 st.markdown("---")
 
