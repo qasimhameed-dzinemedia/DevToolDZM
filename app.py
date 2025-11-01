@@ -513,6 +513,16 @@ def translate_text(text, locale):
         st.error(f"Translation failed: {str(e)}")
         return text
 
+import sqlite3
+conn = sqlite3.connect("app_store_data.db")
+df = conn.execute("""
+    SELECT locale, display_type, COUNT(*) as count 
+    FROM app_screenshots 
+    WHERE app_id = 'YOUR_APP_ID' AND platform = 'IOS'
+    GROUP BY locale, display_type
+""").fetchall()
+print(df)
+conn.close()
 # -------------------------------
 # Main Dashboard
 # -------------------------------
