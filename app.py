@@ -716,7 +716,7 @@ def main():
     selected_app_id = app_options[selected_app_name]
 
     # ------------------------------------------------------------------
-    #  Check Localization – CODE + FULL NAME + HORIZONTAL SCROLL (FIXED)
+    #  Check Localization – CODE + FULL NAME + HORIZONTAL SCROLL (OLD STREAMLIT FIX)
     # ------------------------------------------------------------------
     if st.sidebar.button("Check Localization", key="btn_check_loc"):
         st.session_state["show_loc_table"] = True
@@ -783,58 +783,47 @@ def main():
         if not rows:
             st.info("No apps or localization data found for this store.")
         else:
-            table = []
+            # Build HTML table
+            html = """
+            <div style="overflow-x:auto; border:1px solid #ddd; border-radius:8px; padding:10px; background:#fafafa;">
+            <table style="width:100%; min-width:600px; border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#e3f2fd; text-align:left;">
+                        <th style="padding:12px; border-bottom:2px solid #ddd; font-weight:bold;">App Name</th>
+                        <th style="padding:12px; border-bottom:2px solid #ddd; font-weight:bold;">Languages</th>
+                    </tr>
+                </thead>
+                <tbody>
+            """
+
             for app_name, locale_csv in rows:
                 codes = [c.strip().upper() for c in (locale_csv or "").split(",") if c.strip()]
                 pairs = []
                 for code in codes:
                     if code in locale_names:
-                        pairs.append(f'<code style="background:#e3f2fd;padding:2px 6px;border-radius:4px;color:#1976d2;font-weight:bold;">{code}</code> → {locale_names[code]}')
+                        pairs.append(
+                            f'<code style="background:#bbdefb;padding:3px 7px;border-radius:4px;color:#1565c0;font-weight:bold;">{code}</code> → {locale_names[code]}'
+                        )
                 if not pairs:
-                    pairs = ['<code style="background:#e3f2fd;padding:2px 6px;border-radius:4px;color:#1976d2;font-weight:bold;">EN-US</code> → English (United States)']
+                    pairs = ['<code style="background:#bbdefb;padding:3px 7px;border-radius:4px;color:#1565c0;font-weight:bold;">EN-US</code> → English (United States)']
+
+                # Sort by full name
                 pairs.sort(key=lambda x: x.split("→")[-1].strip())
-                table.append({
-                    "App Name": app_name,
-                    "Languages": "<br>".join(pairs)
-                })
 
-            df = pd.DataFrame(table)
-
-            # ---- HORIZONTAL SCROLL + HTML ----
-            st.markdown(
+                html += f"""
+                    <tr>
+                        <td style="padding:12px; border-bottom:1px solid #eee; vertical-align:top; font-weight:500;">{app_name}</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee; vertical-align:top;">{'<br>'.join(pairs)}</td>
+                    </tr>
                 """
-                <style>
-                .scroll-table {
-                    overflow-x: auto;
-                    white-space: nowrap;
-                    border: 1px solid #ddd;
-                    border-radius: 8px;
-                    padding: 8px;
-                    background: #fafafa;
-                    margin-bottom: 20px;
-                }
-                </style>
-                <div class="scroll-table">
-                """,
-                unsafe_allow_html=True
-            )
 
-            # FIXED: Use Column with unsafe_allow_html=True
-            st.dataframe(
-                df,
-                use_container_width=False,
-                hide_index=True,
-                column_config={
-                    "App Name": st.column_config.Column("App Name", width="medium"),
-                    "Languages": st.column_config.Column(
-                        "Languages",
-                        width="large",
-                        unsafe_allow_html=True  # This enables HTML
-                    )
-                }
-            )
+            html += """
+                </tbody>
+            </table>
+            </div>
+            """
 
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown(html, unsafe_allow_html=True)
 
         # ---- Close button ----------------------------------------------------
         if st.button("Close", key="close_loc_table"):
