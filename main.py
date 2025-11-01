@@ -796,6 +796,17 @@ def fetch_and_store_apps(store_id, issuer_id, key_id, private_key):
 
     return success_count > 0
 
+import sqlite3
+conn = sqlite3.connect("app_store_data.db")
+df = conn.execute("""
+    SELECT locale, display_type, COUNT(*) as count 
+    FROM app_screenshots 
+    WHERE app_id = 'YOUR_APP_ID' AND platform = 'IOS'
+    GROUP BY locale, display_type
+""").fetchall()
+print(df)
+conn.close()
+
 if __name__ == "__main__":
     print("Running main.py in test mode...")
     with get_db_connection() as conn:
