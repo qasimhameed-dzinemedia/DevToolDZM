@@ -715,39 +715,101 @@ def main():
     selected_app_name = st.sidebar.selectbox("Select App", list(app_options.keys()))
     selected_app_id = app_options[selected_app_name]
 
-    # --- Simple Check Localization Button ---
+    # ------------------------------------------------------------------
+    #  Check Localization – Table with full locale names
+    # ------------------------------------------------------------------
     if st.sidebar.button("Check Localization", key="btn_check_loc"):
-        st.session_state['check_loc'] = True
+        st.session_state["show_loc_table"] = True
 
-    # --- Show Simple List on Main Page ---
-    if st.session_state.get('check_loc'):
-        st.markdown("## Localization Status")
-        
+
+    if st.session_state.get("show_loc_table"):
+        st.markdown("## Localization Coverage")
+
+        # ---- Full locale name mapping (all the codes you gave) ----
+        locale_names = {
+            "AR-SA": "Arabic (Saudi Arabia)",
+            "DA":    "Danish",
+            "DE-DE": "German (Germany)",
+            "EN-AU": "English (Australia)",
+            "EN-CA": "English (Canada)",
+            "EN-GB": "English (United Kingdom)",
+            "EN-US": "English (United States)",
+            "ES-ES": "Spanish (Spain)",
+            "ES-MX": "Spanish (Mexico)",
+            "FI":    "Finnish",
+            "FR-CA": "French (Canada)",
+            "FR-FR": "French (France)",
+            "HE":    "Hebrew",
+            "HI":    "Hindi",
+            "HR":    "Croatian",
+            "HU":    "Hungarian",
+            "ID":    "Indonesian",
+            "IT":    "Italian",
+            "JA":    "Japanese",
+            "KO":    "Korean",
+            "MS":    "Malay",
+            "NL-NL": "Dutch (Netherlands)",
+            "PL":    "Polish",
+            "PT-BR": "Portuguese (Brazil)",
+            "PT-PT": "Portuguese (Portugal)",
+            "RU":    "Russian",
+            "TH":    "Thai",
+            "TR":    "Turkish",
+            "UK":    "Ukrainian",
+            "VI":    "Vietnamese",
+            "ZH-HANS": "Chinese (Simplified)",
+            "ZH-HANT": "Chinese (Traditional)",
+        }
+
+        # ---- Pull data from DB ------------------------------------------------
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT a.name, 
+        cursor.execute(
+            """
+            SELECT a.name,
                 GROUP_CONCAT(DISTINCT COALESCE(ail.locale, avl.locale)) AS locales
             FROM apps a
-            LEFT JOIN app_info_localizations ail ON a.app_id = ail.app_id AND a.store_id = ail.store_id
+            LEFT JOIN app_info_localizations  ail ON a.app_id = ail.app_id AND a.store_id = ail.store_id
             LEFT JOIN app_version_localizations avl ON a.app_id = avl.app_id AND a.store_id = avl.store_id
             WHERE a.store_id = ?
             GROUP BY a.app_id, a.name
             ORDER BY a.name
-        """, (selected_store_id,))
-        
-        results = cursor.fetchall()
+            """,
+            (selected_store_id,),
+        )
+        rows = cursor.fetchall()
         conn.close()
 
-        if not results:
-            st.info("No apps or localization data found.")
+        if not rows:
+            st.info("No apps or localization data found for this store.")
         else:
-            for app_name, locales in results:
-                locale_list = ', '.join(sorted([loc.upper() for loc in (locales or '').split(',') if loc])) if locales else "English only"
-                st.markdown(f"**{app_name}** → {locale_list}")
-        
-        if st.button("Close"):
-            del st.session_state['check_loc']
+            table = []
+            for app_name, locale_csv in rows:
+                codes = [c.strip().upper() for c in (locale_csv or "").split(",") if c.strip()]
+                # keep only the ones we know about
+                full = [locale_names.get(c, c) for c in codes if c in locale_names]
+                # fallback to English (US) if nothing was found
+                if not full:
+                    full = [locale_names["EN-US"]]
+                # sort alphabetically
+                full.sort()
+                table.append({"App Name": app_name, "Localized In": ", ".join(full)})
+
+            df = pd.DataFrame(table)
+
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "App Name": st.column_config.TextColumn("App Name", width="medium"),
+                    "Localized In": st.column_config.TextColumn("Localized In", width="large"),
+                },
+            )
+
+        # ---- Close button ----------------------------------------------------
+        if st.button("Close", key="close_loc_table"):
+            del st.session_state["show_loc_table"]
             st.rerun()
 
     col_title, col_refresh, col_search = st.columns([3, 1, 1])
