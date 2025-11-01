@@ -716,7 +716,7 @@ def main():
     selected_app_id = app_options[selected_app_name]
 
     # ------------------------------------------------------------------
-    #  Check Localization – Show CODE + FULL NAME with HORIZONTAL SCROLL
+    #  Check Localization – CODE + FULL NAME + HORIZONTAL SCROLL (FIXED)
     # ------------------------------------------------------------------
     if st.sidebar.button("Check Localization", key="btn_check_loc"):
         st.session_state["show_loc_table"] = True
@@ -786,15 +786,12 @@ def main():
             table = []
             for app_name, locale_csv in rows:
                 codes = [c.strip().upper() for c in (locale_csv or "").split(",") if c.strip()]
-                # Keep only known locales
                 pairs = []
                 for code in codes:
                     if code in locale_names:
-                        pairs.append(f"`{code}` → {locale_names[code]}")
-                # Fallback
+                        pairs.append(f'<code style="background:#e3f2fd;padding:2px 6px;border-radius:4px;color:#1976d2;font-weight:bold;">{code}</code> → {locale_names[code]}')
                 if not pairs:
-                    pairs = ["`EN-US` → English (United States)"]
-                # Sort by full name
+                    pairs = ['<code style="background:#e3f2fd;padding:2px 6px;border-radius:4px;color:#1976d2;font-weight:bold;">EN-US</code> → English (United States)']
                 pairs.sort(key=lambda x: x.split("→")[-1].strip())
                 table.append({
                     "App Name": app_name,
@@ -803,7 +800,7 @@ def main():
 
             df = pd.DataFrame(table)
 
-            # ---- HORIZONTAL SCROLL + HTML for Code + Name ----
+            # ---- HORIZONTAL SCROLL + HTML ----
             st.markdown(
                 """
                 <style>
@@ -814,18 +811,7 @@ def main():
                     border-radius: 8px;
                     padding: 8px;
                     background: #fafafa;
-                }
-                .scroll-table table {
-                    min-width: 100%;
-                    width: max-content;
-                }
-                .lang-code {
-                    background: #e3f2fd;
-                    padding: 2px 6px;
-                    border-radius: 4px;
-                    font-family: monospace;
-                    font-weight: bold;
-                    color: #1976d2;
+                    margin-bottom: 20px;
                 }
                 </style>
                 <div class="scroll-table">
@@ -833,13 +819,18 @@ def main():
                 unsafe_allow_html=True
             )
 
+            # FIXED: Use Column with unsafe_allow_html=True
             st.dataframe(
                 df,
                 use_container_width=False,
                 hide_index=True,
                 column_config={
-                    "App Name": st.column_config.TextColumn("App Name", width="medium"),
-                    "Languages": st.column_config.HtmlColumn("Languages", width="large")
+                    "App Name": st.column_config.Column("App Name", width="medium"),
+                    "Languages": st.column_config.Column(
+                        "Languages",
+                        width="large",
+                        unsafe_allow_html=True  # This enables HTML
+                    )
                 }
             )
 
