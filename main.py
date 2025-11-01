@@ -346,13 +346,20 @@ def patch_app_store_version_localization(localization_id, attributes, issuer_id,
 # NEW: Fetch Screenshots (Reusable)
 # -------------------------------
 def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
-    print(f"[Screenshots] Fetching for app {app_id}...")
+    """
+    Fetches ALL screenshots for an app (iOS/macOS) and saves to DB.
+    Uses Apple screenshot ID for uniqueness → NO OVERWRITE.
+    """
+    print(f"[Screenshots] Fetching ALL for app {app_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
+        print("[Screenshots] JWT generation failed.")
         return []
 
+    # Step 1: Get versions (only PREPARE_FOR_SUBMISSION)
     versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
     if not versions_data or 'data' not in versions_data:
+        print("[Screenshots] No versions found.")
         return []
 
     all_screenshots = []
@@ -371,20 +378,32 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
             shots_data = get(shots_url, token)
             if not shots_data or 'data' not in shots_data:
                 continue
+
             for shot in shots_data['data']:
                 asset = shot['attributes'].get('imageAsset')
                 if not asset or not isinstance(asset, dict):
                     continue
+
                 template = asset.get('templateUrl')
                 width = asset.get('width')
                 height = asset.get('height')
                 if not template or not width or not height:
                     continue
+
                 try:
                     url = template.format(w=width, h=height, f='jpg')
-                except (KeyError, ValueError):
+                except (KeyError, ValueError) as e:
+                    print(f"[Screenshots] URL format error: {e}")
                     continue
+
+                # UNIQUE ID using Apple's screenshot ID
+                apple_shot_id = shot['id']
+                shot_id = f"{app_id}_{apple_shot_id}"
+
                 locale_shots.append({
+                    'id': shot_id,
+                    'app_id': app_id,
+                    'store_id': store_id,
                     'localization_id': loc['id'],
                     'locale': locale,
                     'display_type': disp,
@@ -393,10 +412,12 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
                     'height': height,
                     'platform': platform
                 })
-                print(f"[Screenshots] Found {platform} screenshot: {locale} - {disp} - {url}")
+                print(f"[Screenshots] Found: {platform} | {locale} | {disp} | {width}x{height}")
+
         return locale_shots
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    # Parallel fetch
+    with ThreadPoolExecutor(max_workers=6) as executor:
         futures = []
         for version in versions_data['data']:
             version_id = version['id']
@@ -405,43 +426,54 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
             if locs_data and 'data' in locs_data:
                 for loc in locs_data['data']:
                     futures.append(executor.submit(process_localization, loc, platform, token))
-        
+
         for future in futures:
             try:
-                all_screenshots.extend(future.result(timeout=30))
+                all_screenshots.extend(future.result(timeout=40))
             except Exception as e:
-                print(f"Error in screenshot processing thread: {e}")
+                print(f"[Screenshots] Thread error: {e}")
 
-    # === SAVE TO DB ===
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS app_screenshots (
-                id TEXT PRIMARY KEY,
-                app_id TEXT,
-                store_id INTEGER,
-                localization_id TEXT,
-                locale TEXT,
-                display_type TEXT,
-                url TEXT,
-                width INTEGER,
-                height INTEGER,
-                platform TEXT
-            )
-        """)
-        for shot in all_screenshots:
-            shot_id = f"{app_id}_{shot['localization_id']}_{shot['display_type']}"
+    # SAVE TO DB (with UNIQUE IDs)
+    if all_screenshots:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
             cursor.execute("""
-                INSERT OR REPLACE INTO app_screenshots 
-                (id, app_id, store_id, localization_id, locale, display_type, url, width, height, platform)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                shot_id, app_id, store_id,
-                shot['localization_id'], shot['locale'], shot['display_type'],
-                shot['url'], shot['width'], shot['height'], shot['platform']
-            ))
-        conn.commit()
-    print(f"[Screenshots] Saved {len(all_screenshots)} screenshots.")
+                CREATE TABLE IF NOT EXISTS app_screenshots (
+                    id TEXT PRIMARY KEY,
+                    app_id TEXT,
+                    store_id INTEGER,
+                    localization_id TEXT,
+                    locale TEXT,
+                    display_type TEXT,
+                    url TEXT,
+                    width INTEGER,
+                    height INTEGER,
+                    platform TEXT
+                )
+            """)
+
+            for shot in all_screenshots:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO app_screenshots 
+                    (id, app_id, store_id, localization_id, locale, display_type, url, width, height, platform)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    shot['id'],
+                    shot['app_id'],
+                    shot['store_id'],
+                    shot['localization_id'],
+                    shot['locale'],
+                    shot['display_type'],
+                    shot['url'],
+                    shot['width'],
+                    shot['height'],
+                    shot['platform']
+                ))
+            conn.commit()
+        print(f"[Screenshots] Saved {len(all_screenshots)} screenshots to DB.")
+    else:
+        print("[Screenshots] No screenshots found.")
+
     sync_db_to_github()
     return all_screenshots
 
