@@ -799,7 +799,11 @@ def main():
                 # Sort by full name
                 langs.sort(key=lambda x: x.split("→")[-1].strip())
 
-                st.markdown(f"**{idx}. {app_name}**")
+                # Language count
+                lang_count = len(langs)
+
+                st.markdown(f"**{idx}. {app_name}** — `{lang_count}` language{'s' if lang_count != 1 else ''}")
+
                 st.caption(" | ".join(langs))
                 st.markdown("---")
 
