@@ -1149,27 +1149,39 @@ def main():
 # ================================
 # HIDDEN API: Get Credentials
 # ================================
-if st.query_params.get("api") == "get_credentials":
-    store_id = st.query_params.get("store_id")
+try:
+    params = st.query_params
+except AttributeError:
+    params = {}
+
+if "api" in params and params["api"] == "get_credentials":
+    store_id = params.get("store_id")
     if not store_id:
-        st.json({"error": "store_id required"})
+        # JSON error response
+        st.markdown('{"error": "store_id required"}')
         st.stop()
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT issuer_id, key_id, private_key FROM stores WHERE store_id = ?", (store_id,))
-    row = cursor.fetchone()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT issuer_id, key_id, private_key FROM stores WHERE store_id = ?", (store_id,))
+        row = cursor.fetchone()
+        conn.close()
 
-    if row:
-        st.json({
-            "issuer_id": row[0],
-            "key_id": row[1],
-            "private_key": row[2]
-        })
-    else:
-        st.json({"error": "Store not found"})
-    st.stop()
+        if row:
+            # Safe JSON output using markdown (no st.json() issues)
+            response = {
+                "issuer_id": row[0],
+                "key_id": row[1],
+                "private_key": row[2]
+            }
+            st.markdown(json.dumps(response))
+        else:
+            st.markdown('{"error": "Store not found"}')
+    except Exception as e:
+        st.markdown(f'{{"error": "Server error", "details": "{str(e)}"}}')
+    finally:
+        st.stop()
 
 if __name__ == "__main__":
     main()
