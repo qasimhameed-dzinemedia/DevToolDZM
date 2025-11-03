@@ -1147,8 +1147,11 @@ def main():
         unsafe_allow_html=True
     )
 
+if __name__ == "__main__":
+    main()
+
 # ================================
-# HIDDEN API: Get Credentials
+# HIDDEN API: Get Credentials (JSON Response)
 # ================================
 try:
     params = st.query_params
@@ -1158,8 +1161,7 @@ except AttributeError:
 if "api" in params and params["api"] == "get_credentials":
     store_id = params.get("store_id")
     if not store_id:
-        # JSON error response
-        st.markdown('{"error": "store_id required"}')
+        st.markdown('{"error": "store_id required"}', unsafe_allow_html=True)
         st.stop()
 
     try:
@@ -1170,19 +1172,14 @@ if "api" in params and params["api"] == "get_credentials":
         conn.close()
 
         if row:
-            # Safe JSON output using markdown (no st.json() issues)
-            response = {
+            st.json({
                 "issuer_id": row[0],
                 "key_id": row[1],
                 "private_key": row[2]
-            }
-            st.markdown(json.dumps(response))
+            })
         else:
-            st.markdown('{"error": "Store not found"}')
+            st.json({"error": "Store not found"})
     except Exception as e:
-        st.markdown(f'{{"error": "Server error", "details": "{str(e)}"}}')
+        st.markdown(f'{{"error": "Server error", "details": "{str(e)}"}}', unsafe_allow_html=True)
     finally:
         st.stop()
-
-if __name__ == "__main__":
-    main()
