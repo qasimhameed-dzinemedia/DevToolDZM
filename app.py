@@ -7,6 +7,7 @@ import requests
 import hashlib
 from bs4 import BeautifulSoup
 import re
+import json
 from main import (
     fetch_and_store_apps,
     patch_app_info_localization,
