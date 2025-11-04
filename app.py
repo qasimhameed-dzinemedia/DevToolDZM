@@ -92,7 +92,7 @@ locale_names = {
 # -------------------------------
 # Gemini AI Setup
 # -------------------------------
-GEMINI_API_KEY = "AIzaSyCoIwS0zRQ0CTl4WY8et_QDTOUrIIuB3iA"
+GEMINI_API_KEY = "AIzaSyAIB-Br-ZJtMBs5f8beL_JUpDAKW4ygYYk"
 gemini_model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -1044,19 +1044,19 @@ def main():
                                     translated = ""
                                     if attr == "name":
                                         translated = translate_name_subtitle(source_text, loc)
-                                        time.sleep(4)
+                                        time.sleep(0.5)
                                     elif attr == "subtitle":
                                         translated = translate_name_subtitle(source_text, loc)
-                                        time.sleep(4)
+                                        time.sleep(0.5)
                                     elif attr == "promotional_text":
                                         translated = translate_promotional_text(source_text, loc)
-                                        time.sleep(4)
+                                        time.sleep(0.5)
                                     elif attr == "keywords":
                                         translated = translate_keywords(source_text, loc)
-                                        time.sleep(4)
+                                        time.sleep(0.5)
                                     else:  # description, whats_new
                                         translated = translate_text(source_text, loc)
-                                        time.sleep(4)
+                                        time.sleep(0.5)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
