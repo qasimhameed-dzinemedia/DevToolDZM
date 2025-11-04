@@ -35,6 +35,60 @@ FIELD_LIMITS = {
     "keywords":           100,
 }
 
+locale_names = {
+    "AR-SA": "Arabic (Saudi Arabia)",
+    "CA":    "Catalan",
+    "CS":    "Czech",
+    "DA":    "Danish",
+    "DE-DE": "German (Germany)",
+    "EL":    "Greek",
+    "EN-AU": "English (Australia)",
+    "EN-CA": "English (Canada)",
+    "EN-GB": "English (United Kingdom)",
+    "EN-US": "English (United States)",
+    "ES-ES": "Spanish (Spain)",
+    "ES-MX": "Spanish (Mexico)",
+    "FI":    "Finnish",
+    "FR-CA": "French (Canada)",
+    "FR-FR": "French (France)",
+    "HE":    "Hebrew",
+    "HI":    "Hindi",
+    "HR":    "Croatian",
+    "HU":    "Hungarian",
+    "ID":    "Indonesian",
+    "IT":    "Italian",
+    "JA":    "Japanese",
+    "KO":    "Korean",
+    "MS":    "Malay",
+    "NL-NL": "Dutch (Netherlands)",
+    "NO":    "Norwegian",
+    "PL":    "Polish",
+    "PT-BR": "Portuguese (Brazil)",
+    "PT-PT": "Portuguese (Portugal)",
+    "RO":    "Romanian",
+    "RU":    "Russian",
+    "SK":    "Slovak",
+    "SV":    "Swedish",
+    "TH":    "Thai",
+    "TR":    "Turkish",
+    "UK":    "Ukrainian",
+    "VI":    "Vietnamese",
+    "ZH-HANS": "Chinese (Simplified)",
+    "ZH-HANT": "Chinese (Traditional)",
+    "BN":     "Bengali",                    # Bangladesh, India
+    "FA":     "Persian (Farsi)",            # Iran
+    "GU":     "Gujarati",                   # India
+    "KN":     "Kannada",                    # India
+    "ML":     "Malayalam",                  # India
+    "MR":     "Marathi",                    # India
+    "PA":     "Punjabi",                    # India, Pakistan
+    "TA":     "Tamil",                      # India, Sri Lanka
+    "TE":     "Telugu",                     # India
+    "UR":     "Urdu",                       # Pakistan, India
+    "IW":     "Hebrew (Legacy)",            # Old code (same as HE)
+    "NB":     "Norwegian Bokmål"            # More specific than NO
+}
+
 # -------------------------------
 # Gemini AI Setup
 # -------------------------------
@@ -784,7 +838,6 @@ def main():
 
     if st.session_state.get("show_loc_table"):
         st.markdown("## Localization Coverage")
-        locale_names = { ... }  # (your full dict)
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -991,16 +1044,19 @@ def main():
                                     translated = ""
                                     if attr == "name":
                                         translated = translate_name_subtitle(source_text, loc)
+                                        time.sleep(4)
                                     elif attr == "subtitle":
                                         translated = translate_name_subtitle(source_text, loc)
+                                        time.sleep(4)
                                     elif attr == "promotional_text":
                                         translated = translate_promotional_text(source_text, loc)
+                                        time.sleep(4)
                                     elif attr == "keywords":
                                         translated = translate_keywords(source_text, loc)
+                                        time.sleep(4)
                                     else:  # description, whats_new
                                         translated = translate_text(source_text, loc)
-                                    
-                                    time.sleep(2)  # Be kind to Gemini
+                                        time.sleep(4)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
@@ -1026,10 +1082,13 @@ def main():
                     height = 160 if attr in ["description", "promotional_text", "whats_new"] else 80
                     input_key = f"edit_{loc_id}"
 
+                    full_name = locale_names.get(locale.upper(), locale)   # fallback to code if missing
+                    label = f"{locale.upper()} – {full_name}"
+
                     if is_url:
-                        user_text = st.text_input(locale.upper(), value=val, key=input_key)
+                        user_text = st.text_input(label, value=val, key=input_key)
                     else:
-                        user_text = st.text_area(locale.upper(), value=val, key=input_key, height=height)
+                        user_text = st.text_area(label, value=val, key=input_key, height=height)
 
                     if limit and len(user_text) > limit:
                         st.error(f"Warning: Limit: **{limit}** chars | You have: **{len(user_text)}** (+{len(user_text) - limit} extra)")
