@@ -567,38 +567,38 @@ def translate_text(text, locale):
         st.error(f"Translation failed: {str(e)}")
         return text
 
-def translate_name_subtitle(text, locale):
-    if not gemini_model or not text.strip():
-        return text
-    try:
-        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 30 characters."
-        response = gemini_model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        st.error(f"Translation failed: {str(e)}")
-        return text
+# def translate_name_subtitle(text, locale):
+#     if not gemini_model or not text.strip():
+#         return text
+#     try:
+#         prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 30 characters."
+#         response = gemini_model.generate_content(prompt)
+#         return response.text.strip()
+#     except Exception as e:
+#         st.error(f"Translation failed: {str(e)}")
+#         return text
     
-def translate_promotional_text(text, locale):
-    if not gemini_model or not text.strip():
-        return text
-    try:
-        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 170 characters."
-        response = gemini_model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        st.error(f"Translation failed: {str(e)}")
-        return text
+# def translate_promotional_text(text, locale):
+#     if not gemini_model or not text.strip():
+#         return text
+#     try:
+#         prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 170 characters."
+#         response = gemini_model.generate_content(prompt)
+#         return response.text.strip()
+#     except Exception as e:
+#         st.error(f"Translation failed: {str(e)}")
+#         return text
     
-def translate_keywords(text, locale):
-    if not gemini_model or not text.strip():
-        return text
-    try:
-        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 100 characters."
-        response = gemini_model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        st.error(f"Translation failed: {str(e)}")
-        return text
+# def translate_keywords(text, locale):
+#     if not gemini_model or not text.strip():
+#         return text
+#     try:
+#         prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 100 characters."
+#         response = gemini_model.generate_content(prompt)
+#         return response.text.strip()
+#     except Exception as e:
+#         st.error(f"Translation failed: {str(e)}")
+#         return text
     
 # -------------------------------
 # Main Dashboard
@@ -1041,22 +1041,8 @@ def main():
                         else:
                             with st.spinner("Translating..."):
                                 for loc in locales:
-                                    translated = ""
-                                    if attr == "name":
-                                        translated = translate_name_subtitle(source_text, loc)
-                                        time.sleep(0.5)
-                                    elif attr == "subtitle":
-                                        translated = translate_name_subtitle(source_text, loc)
-                                        time.sleep(0.5)
-                                    elif attr == "promotional_text":
-                                        translated = translate_promotional_text(source_text, loc)
-                                        time.sleep(0.5)
-                                    elif attr == "keywords":
-                                        translated = translate_keywords(source_text, loc)
-                                        time.sleep(0.5)
-                                    else:  # description, whats_new
-                                        translated = translate_text(source_text, loc)
-                                        time.sleep(0.5)
+                                    translated = translate_text(source_text, loc)
+                                    time.sleep(0.5)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
