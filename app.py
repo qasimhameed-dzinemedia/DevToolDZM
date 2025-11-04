@@ -1068,17 +1068,24 @@ def main():
                         st.markdown(
                             f"""
                             <div style="
-                                border: 2px solid #ff9800;
-                                border-radius: 6px;
-                                padding: 8px;
-                                background-color: #fff8e1;
-                                font-size: 13px;
-                                color: #e65100;
-                                margin-top: 5px;
+                                border: 3px solid #FF6B00;
+                                border-radius: 8px;
+                                padding: 10px;
+                                background: linear-gradient(135deg, #FFF4E5, #FFE0B2);
+                                font-size: 14px;
+                                font-weight: 500;
+                                color: #D84315;
+                                margin-top: 6px;
+                                box-shadow: 0 2px 6px rgba(255, 107, 0, 0.2);
+                                display: flex;
+                                align-items: center;
+                                gap: 6px;
                             ">
-                                <strong>Warning:</strong> Limit is <strong>{limit}</strong> characters, 
-                                but you have <strong>{len(user_text)}</strong> 
-                                ({len(user_text) - limit} extra)
+                                <span style="font-size: 18px;">Warning:</span>
+                                <strong>Limit:</strong> <strong>{limit}</strong> chars  
+                                <span style="color: #B71C1C;">|</span>  
+                                <strong>You have:</strong> <strong style="color: #B71C1C;">{len(user_text)}</strong> 
+                                <span style="color: #E65100;">(+{len(user_text) - limit} extra)</span>
                             </div>
                             """,
                             unsafe_allow_html=True
