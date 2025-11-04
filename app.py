@@ -506,7 +506,7 @@ def translate_text(text, locale):
     if not gemini_model or not text.strip():
         return text
     try:
-        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text."
+        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 30 characters."
         response = gemini_model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
@@ -517,7 +517,7 @@ def translate_text(text, locale):
 # Main Dashboard
 # -------------------------------
 def main():
-    st.set_page_config(page_title="App Metadata Dashboard", page_icon="Chart", layout="wide")
+    st.set_page_config(page_title="App Metadata Dashboard", page_icon="📊", layout="wide")
     st.title("App Metadata Dashboard")
 
     if not check_database_exists():
