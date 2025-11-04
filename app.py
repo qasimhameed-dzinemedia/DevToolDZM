@@ -514,9 +514,6 @@ def translate_text(text, locale):
         st.error(f"Translation failed: {str(e)}")
         return text
 
-# -------------------------------------------------------------------------
-# Apple App Store Connect field limits (official 2025)
-# -------------------------------------------------------------------------
 FIELD_LIMITS = {
     "name":               30,
     "subtitle":           30,
@@ -530,41 +527,46 @@ FIELD_LIMITS = {
     "keywords":           100,
 }
 
-def _field_with_limit(attr: str, value: str, key: str, height: int = 80):
-    """Return a Streamlit input (text_input / text_area) that:
-       • highlights in red when the limit is exceeded
-       • shows a tiny warning with the allowed length
-    """
+def _field_with_limit(attr: str, value: str, key: str, height: int = 80, locale: str = ""):
+    """Return a Streamlit input that highlights when limit is exceeded."""
     limit = FIELD_LIMITS.get(attr, None)
     over = limit is not None and len(value) > limit
 
-    # ----- INPUT -----
+    # Label: use locale if provided, else field name
+    label = locale.upper() if locale else attr.replace("_", " ").title()
+
     if attr in ["privacy_policy_url", "privacy_choices_url",
                 "marketing_url", "support_url", "keywords"]:
-        # URLs / keyword list → single-line
-        widget = st.text_input
-        kwargs = {"value": value, "key": key, "placeholder": "https://..."}
+        new_val = st.text_input(
+            label=label,
+            value=value,
+            key=key,
+            placeholder="https://..." if "url" in attr else "",
+            label_visibility="collapsed"
+        )
     else:
-        widget = st.text_area
-        kwargs = {"value": value, "key": key, "height": height}
+        new_val = st.text_area(
+            label=label,
+            value=value,
+            key=key,
+            height=height,
+            label_visibility="collapsed"
+        )
 
-    new_val = widget(**kwargs)
-
-    # ----- WARNING -----
+    # Character counter + limit warning
     if limit is not None:
         colour = "red" if over else "gray"
         status = "EXCEEDED" if over else "OK"
         st.markdown(
             f"<small style='color:{colour};'>"
-            f"Limit: <b>{limit}</b> chars – {len(new_val)}/{limit} [{status}]"
-            f"</small>",
+            f"Limit: <b>{limit}</b> chars – {len(new_val)}/{limit} [{status}]</small>",
             unsafe_allow_html=True,
         )
     else:
         st.markdown(f"<small>{len(new_val)} chars</small>", unsafe_allow_html=True)
 
     return new_val
-
+   
 # -------------------------------
 # Main Dashboard
 # -------------------------------
@@ -1063,25 +1065,22 @@ def main():
                 st.markdown("---")
 
                 # -------------------------------
-                # EDIT FIELDS (Per Locale) – with limit checks
+                # EDIT FIELDS (Per Locale)
                 # -------------------------------
                 for _, row in data.iterrows():
                     loc_id   = row["localization_id"]
                     locale   = row["locale"]
                     current_val = row[attr] or ""
-
-                    # Auto-filled value (from Translate / Fill-All)
                     val = st.session_state.get(f"auto_{attr}_{locale}", current_val)
 
-                    # ----- Choose height -----
                     height = 160 if attr in ("description", "promotional_text", "whats_new") else 80
 
-                    # ----- Render field with limit handling -----
                     new_val = _field_with_limit(
                         attr=attr,
                         value=val,
                         key=f"edit_{loc_id}",
                         height=height,
+                        locale=locale  # ← PASS LOCALE HERE
                     )
 
                     changes[loc_id] = new_val or None
