@@ -506,7 +506,40 @@ def translate_text(text, locale):
     if not gemini_model or not text.strip():
         return text
     try:
+        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text."
+        response = gemini_model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        st.error(f"Translation failed: {str(e)}")
+        return text
+
+def translate_name_subtitle(text, locale):
+    if not gemini_model or not text.strip():
+        return text
+    try:
         prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 30 characters."
+        response = gemini_model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        st.error(f"Translation failed: {str(e)}")
+        return text
+    
+def translate_promotional_text(text, locale):
+    if not gemini_model or not text.strip():
+        return text
+    try:
+        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 170 characters."
+        response = gemini_model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        st.error(f"Translation failed: {str(e)}")
+        return text
+    
+def translate_keywords(text, locale):
+    if not gemini_model or not text.strip():
+        return text
+    try:
+        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 100 characters."
         response = gemini_model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
@@ -518,7 +551,7 @@ def translate_text(text, locale):
 # -------------------------------
 def main():
     st.set_page_config(page_title="App Metadata Dashboard", page_icon="📊", layout="wide")
-    st.title("App Metadata Dashboard")
+    st.title("📱 App Metadata Dashboard")
 
     if not check_database_exists():
         initialize_database()
@@ -548,6 +581,28 @@ def main():
     st.sidebar.success(f"Logged in as: **{st.session_state.user['username']}**")
     if st.session_state.is_admin:
         st.sidebar.success("You are **ADMIN**")
+
+    # Add Store – ONLY ADMIN
+    if st.session_state.is_admin:
+        with st.sidebar.expander("➕ Add New Store"):
+            name = st.text_input("Store Name")
+            issuer_id_input = st.text_input("Issuer ID")
+            key_id_input = st.text_input("Key ID")
+            private_key_input = st.text_area("Private Key")
+            if st.button("Add Store"):
+                if name and issuer_id_input and key_id_input and private_key_input:
+                    store_id = add_store(name, issuer_id_input, key_id_input, private_key_input)
+                    with st.spinner("Fetching..."):
+                        success = fetch_and_store_apps(store_id, issuer_id_input, key_id_input, private_key_input)
+                        if success:
+                            st.success("Store added and data fetched!")
+                            st.session_state.selected_store_id = store_id
+                            st.session_state.selected_app_id = None
+                            st.session_state.last_store_name = name
+                        else:
+                            st.error("Store added, but data fetch failed.")
+                    sync_db_to_github()
+                    st.rerun()
 
     # Admin Panel
     if st.session_state.is_admin:
@@ -659,7 +714,7 @@ def main():
 
     # --- ADMIN: DELETE STORE ---
     if st.session_state.is_admin:
-        if st.sidebar.button("Delete Store", key="delete_current_store"):
+        if st.sidebar.button("🗑️", key="delete_current_store"):
             st.session_state['confirm_delete_store'] = selected_store_id
             st.session_state['confirm_delete_name'] = selected_store_name
 
@@ -685,7 +740,7 @@ def main():
 
     issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
 
-    if st.sidebar.button("Fetch Data for Store"):
+    if st.sidebar.button("🔄 Fetch Data for Store"):
         with st.spinner("Fetching..."):
             success = fetch_and_store_apps(selected_store_id, issuer_id, key_id, private_key)
             if success:
@@ -695,33 +750,12 @@ def main():
         sync_db_to_github()
         st.rerun()
 
-    # Add Store – ONLY ADMIN
-    if st.session_state.is_admin:
-        with st.sidebar.expander("Add New Store"):
-            name = st.text_input("Store Name")
-            issuer_id_input = st.text_input("Issuer ID")
-            key_id_input = st.text_input("Key ID")
-            private_key_input = st.text_area("Private Key")
-            if st.button("Add Store"):
-                if name and issuer_id_input and key_id_input and private_key_input:
-                    store_id = add_store(name, issuer_id_input, key_id_input, private_key_input)
-                    with st.spinner("Fetching..."):
-                        success = fetch_and_store_apps(store_id, issuer_id_input, key_id_input, private_key_input)
-                        if success:
-                            st.success("Store added and data fetched!")
-                            st.session_state.selected_store_id = store_id
-                            st.session_state.selected_app_id = None
-                            st.session_state.last_store_name = name
-                        else:
-                            st.error("Store added, but data fetch failed.")
-                    sync_db_to_github()
-                    st.rerun()
-
     apps_df = get_apps_list(selected_store_id)
     if apps_df.empty:
         st.warning("No apps! Fetch data first.")
         return
 
+    st.sidebar.header("📱 Search Apps")
     app_options = {row['name']: row['app_id'] for _, row in apps_df.iterrows()}
     app_names = list(app_options.keys())
 
@@ -903,7 +937,7 @@ def main():
 
         col_btn, col_sync = st.columns([3, 1])
         with col_btn:
-            if st.button("Screenshots", key="attr_screenshots"):
+            if st.button("🖼️ Screenshots", key="attr_screenshots"):
                 st.session_state['selected_attribute'] = 'screenshots'
         with col_sync:
             if st.button("Sync", key="sync_screenshots"):
@@ -943,6 +977,9 @@ def main():
                 )
                 st.session_state[f"source_text_{attr}"] = source_text
 
+                # -------------------------------
+                # TRANSLATE ALL (Field-Specific)
+                # -------------------------------
                 text_attrs = ['name', 'subtitle', 'description', 'keywords', 'promotional_text', 'whats_new']
                 if attr in text_attrs:
                     if st.button("Translate All"):
@@ -951,8 +988,19 @@ def main():
                         else:
                             with st.spinner("Translating..."):
                                 for loc in locales:
-                                    translated = translate_text(source_text, loc)
-                                    time.sleep(4)
+                                    translated = ""
+                                    if attr == "name":
+                                        translated = translate_name_subtitle(source_text, loc)
+                                    elif attr == "subtitle":
+                                        translated = translate_name_subtitle(source_text, loc)
+                                    elif attr == "promotional_text":
+                                        translated = translate_promotional_text(source_text, loc)
+                                    elif attr == "keywords":
+                                        translated = translate_keywords(source_text, loc)
+                                    else:  # description, whats_new
+                                        translated = translate_text(source_text, loc)
+                                    
+                                    time.sleep(2)  # Be kind to Gemini
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
