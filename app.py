@@ -1109,18 +1109,23 @@ def main():
                     st.error(f"Cannot save! Fix {len(exceeded)} field(s) exceeding limit:\n" + ", ".join(exceeded))
                     st.button("Save Changes", disabled=True, key=f"{save_key}_disabled")
                 else:
-                    if st.button("Save Changes"):
-                        success = True
-                        for loc_id, val in changes.items():
-                            func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
-                            if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
-                                success = False
-                        if success:
-                            st.success("Saved!")
-                            sync_db_to_github()
-                        else:
-                            st.error("Save failed.")
-                        st.rerun()
+                    if st.button("Save Changes", key=save_key):
+                        with st.spinner("Saving..."):
+                            success = True
+                            for loc_id, val in changes.items():
+                                func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
+                                if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
+                                    success = False
+                            if success:
+                                st.success("Saved successfully!")
+                                sync_db_to_github()
+                                for loc in locales:
+                                    key = f"auto_{attr}_{loc}"
+                                    if key in st.session_state:
+                                        del st.session_state[key]
+                            else:
+                                st.error("Save failed.")
+                            st.rerun()
 
         if attr == 'screenshots':
             platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select")
