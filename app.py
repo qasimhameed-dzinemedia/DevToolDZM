@@ -887,7 +887,7 @@ def main():
             }.get(attr, '')
             col_btn, col_sync = st.columns([3, 1])
             with col_btn:
-                if st.button(f"{emoji.get(attr, '')} {attr.capitalize()}", key=f"attr_{attr}"):
+                if st.button(f"{emoji} {attr.capitalize()}", key=f"attr_{attr}"):
                     st.session_state['selected_attribute'] = attr
             with col_sync:
                 if st.button("Sync", key=f"sync_{attr}"):
