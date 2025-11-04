@@ -513,60 +513,7 @@ def translate_text(text, locale):
     except Exception as e:
         st.error(f"Translation failed: {str(e)}")
         return text
-
-FIELD_LIMITS = {
-    "name":               30,
-    "subtitle":           30,
-    "description":        4000,
-    "promotional_text":   170,
-    "whats_new":          4000,
-    "privacy_policy_url": 2000,
-    "privacy_choices_url":2000,
-    "marketing_url":      2000,
-    "support_url":        2000,
-    "keywords":           100,
-}
-
-def _field_with_limit(attr: str, value: str, key: str, height: int = 80, locale: str = ""):
-    """Return a Streamlit input that highlights when limit is exceeded."""
-    limit = FIELD_LIMITS.get(attr, None)
-    over = limit is not None and len(value) > limit
-
-    # Label: use locale if provided, else field name
-    label = locale.upper() if locale else attr.replace("_", " ").title()
-
-    if attr in ["privacy_policy_url", "privacy_choices_url",
-                "marketing_url", "support_url", "keywords"]:
-        new_val = st.text_input(
-            label=label,
-            value=value,
-            key=key,
-            placeholder="https://..." if "url" in attr else "",
-            label_visibility="collapsed"
-        )
-    else:
-        new_val = st.text_area(
-            label=label,
-            value=value,
-            key=key,
-            height=height,
-            label_visibility="collapsed"
-        )
-
-    # Character counter + limit warning
-    if limit is not None:
-        colour = "red" if over else "gray"
-        status = "EXCEEDED" if over else "OK"
-        st.markdown(
-            f"<small style='color:{colour};'>"
-            f"Limit: <b>{limit}</b> chars – {len(new_val)}/{limit} [{status}]</small>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(f"<small>{len(new_val)} chars</small>", unsafe_allow_html=True)
-
-    return new_val
-   
+    
 # -------------------------------
 # Main Dashboard
 # -------------------------------
@@ -1068,20 +1015,28 @@ def main():
                 # EDIT FIELDS (Per Locale)
                 # -------------------------------
                 for _, row in data.iterrows():
-                    loc_id   = row["localization_id"]
-                    locale   = row["locale"]
+                    loc_id = row['localization_id']
+                    locale = row['locale']
                     current_val = row[attr] or ""
+
+                    # Auto-filled value (from Translate or Fill All)
                     val = st.session_state.get(f"auto_{attr}_{locale}", current_val)
 
-                    height = 160 if attr in ("description", "promotional_text", "whats_new") else 80
-
-                    new_val = _field_with_limit(
-                        attr=attr,
-                        value=val,
-                        key=f"edit_{loc_id}",
-                        height=height,
-                        locale=locale  # ← PASS LOCALE HERE
-                    )
+                    if attr in url_attrs:
+                        new_val = st.text_input(
+                            locale.upper(),
+                            value=val,
+                            key=f"edit_{loc_id}",
+                            placeholder="https://..."
+                        )
+                    else:
+                        height = 160 if attr in ['description', 'promotional_text', 'whats_new'] else 80
+                        new_val = st.text_area(
+                            locale.upper(),
+                            value=val,
+                            key=f"edit_{loc_id}",
+                            height=height
+                        )
 
                     changes[loc_id] = new_val or None
                     st.markdown("---")
@@ -1195,4 +1150,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
