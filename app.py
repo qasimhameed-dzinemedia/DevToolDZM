@@ -1052,16 +1052,14 @@ def main():
                         user_text = st.text_input(
                             label=locale.upper(),
                             value=default_text,
-                            key=input_key,
-                            label_visibility="collapsed"
+                            key=input_key
                         )
                     else:
                         user_text = st.text_area(
                             label=locale.upper(),
                             value=default_text,
                             key=input_key,
-                            height=height,
-                            label_visibility="collapsed"
+                            height=height
                         )
 
                     # --- Real-time Check ---
