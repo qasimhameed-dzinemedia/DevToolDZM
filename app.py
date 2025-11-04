@@ -1064,39 +1064,13 @@ def main():
 
                     # --- Real-time Check ---
                     if limit and len(user_text) > limit:
-                        # Yellow border + warning
-                        st.markdown(
-                            f"""
-                            <div style="
-                                border: 3px solid #FF6B00;
-                                border-radius: 8px;
-                                padding: 10px;
-                                background: linear-gradient(135deg, #FFF4E5, #FFE0B2);
-                                font-size: 14px;
-                                font-weight: 500;
-                                color: #D84315;
-                                margin-top: 6px;
-                                box-shadow: 0 2px 6px rgba(255, 107, 0, 0.2);
-                                display: flex;
-                                align-items: center;
-                                gap: 6px;
-                            ">
-                                <span style="font-size: 18px;">Warning:</span>
-                                <strong>Limit:</strong> <strong>{limit}</strong> chars  
-                                <span style="color: #B71C1C;">|</span>  
-                                <strong>You have:</strong> <strong style="color: #B71C1C;">{len(user_text)}</strong> 
-                                <span style="color: #E65100;">(+{len(user_text) - limit} extra)</span>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
+                        st.error(
+                            f"Warning: Limit: **{limit}** chars | "
+                            f"You have: **{len(user_text)}** "
+                            f"(**+{len(user_text) - limit}** extra)"
                         )
                     elif limit:
-                        # Normal counter
-                        st.markdown(
-                            f"<small style='color: gray;'>"
-                            f"{len(user_text)} / {limit} characters</small>",
-                            unsafe_allow_html=True
-                        )
+                        st.caption(f"{len(user_text)} / {limit} characters")
 
                     # Store change
                     changes[loc_id] = user_text or None
