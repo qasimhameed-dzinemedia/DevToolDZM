@@ -873,7 +873,18 @@ def main():
             'description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new'
         ]
         for attr in attributes:
-            emoji = { ... }  # your emoji dict
+            emoji = {
+                'name': '📛',
+                'subtitle': '📝',
+                'privacy_policy_url': '🔒',
+                'privacy_choices_url': '⚙️',
+                'description': '📖',
+                'keywords': '🔍',
+                'marketing_url': '📣',
+                'promotional_text': '🎉',
+                'support_url': '🛠️',
+                'whats_new': '✨'
+            }.get(attr, '')
             col_btn, col_sync = st.columns([3, 1])
             with col_btn:
                 if st.button(f"{emoji.get(attr, '')} {attr.capitalize()}", key=f"attr_{attr}"):
