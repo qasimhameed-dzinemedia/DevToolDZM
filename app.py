@@ -1104,11 +1104,23 @@ def main():
                                     success = False
                             if success:
                                 st.success("Saved successfully!")
-                                sync_db_to_github()
+
+                                # 1. Sync DB with App Store (pull latest)
+                                with st.spinner("Syncing latest data from App Store..."):
+                                    sync_attribute_data(
+                                        attr, selected_app_id, selected_store_id,
+                                        issuer_id, key_id, private_key, platform
+                                    )
+
+                                # 2. Push DB to GitHub
+                                with st.spinner("Pushing to GitHub..."):
+                                    sync_db_to_github()
+
+                                # 3. Clear auto-fill
                                 for loc in locales:
-                                    key = f"auto_{attr}_{loc}"
-                                    if key in st.session_state:
-                                        del st.session_state[key]
+                                    auto_key = f"auto_{attr}_{loc}"
+                                    if auto_key in st.session_state:
+                                        del st.session_state[auto_key]
                             else:
                                 st.error("Save failed.")
                             st.rerun()
