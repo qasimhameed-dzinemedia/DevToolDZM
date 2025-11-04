@@ -22,6 +22,19 @@ from main import (
     sync_db_to_github
 )
 
+FIELD_LIMITS = {
+    "name":               30,
+    "subtitle":           30,
+    "description":        4000,
+    "promotional_text":   170,
+    "whats_new":          4000,
+    "privacy_policy_url": 2000,
+    "privacy_choices_url":2000,
+    "marketing_url":      2000,
+    "support_url":        2000,
+    "keywords":           100,
+}
+
 # -------------------------------
 # Gemini AI Setup
 # -------------------------------
@@ -513,60 +526,7 @@ def translate_text(text, locale):
     except Exception as e:
         st.error(f"Translation failed: {str(e)}")
         return text
-
-FIELD_LIMITS = {
-    "name":               30,
-    "subtitle":           30,
-    "description":        4000,
-    "promotional_text":   170,
-    "whats_new":          4000,
-    "privacy_policy_url": 2000,
-    "privacy_choices_url":2000,
-    "marketing_url":      2000,
-    "support_url":        2000,
-    "keywords":           100,
-}
-
-def _field_with_limit(attr: str, value: str, key: str, height: int = 80, locale: str = ""):
-    """Return a Streamlit input that highlights when limit is exceeded."""
-    limit = FIELD_LIMITS.get(attr, None)
-    over = limit is not None and len(value) > limit
-
-    # Label: use locale if provided, else field name
-    label = locale.upper() if locale else attr.replace("_", " ").title()
-
-    if attr in ["privacy_policy_url", "privacy_choices_url",
-                "marketing_url", "support_url", "keywords"]:
-        new_val = st.text_input(
-            label=label,
-            value=value,
-            key=key,
-            placeholder="https://..." if "url" in attr else "",
-            label_visibility="collapsed"
-        )
-    else:
-        new_val = st.text_area(
-            label=label,
-            value=value,
-            key=key,
-            height=height,
-            label_visibility="collapsed"
-        )
-
-    # Character counter + limit warning
-    if limit is not None:
-        colour = "red" if over else "gray"
-        status = "EXCEEDED" if over else "OK"
-        st.markdown(
-            f"<small style='color:{colour};'>"
-            f"Limit: <b>{limit}</b> chars – {len(new_val)}/{limit} [{status}]</small>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(f"<small>{len(new_val)} chars</small>", unsafe_allow_html=True)
-
-    return new_val
-   
+    
 # -------------------------------
 # Main Dashboard
 # -------------------------------
@@ -1065,46 +1025,108 @@ def main():
                 st.markdown("---")
 
                 # -------------------------------
-                # EDIT FIELDS (Per Locale)
+                # EDIT FIELDS (Per Locale) – Real-time yellow warning
                 # -------------------------------
                 for _, row in data.iterrows():
-                    loc_id   = row["localization_id"]
-                    locale   = row["locale"]
+                    loc_id = row["localization_id"]
+                    locale = row["locale"]
                     current_val = row[attr] or ""
+
+                    # Auto-fill from translation or "Fill All"
                     val = st.session_state.get(f"auto_{attr}_{locale}", current_val)
 
-                    height = 160 if attr in ("description", "promotional_text", "whats_new") else 80
+                    limit = FIELD_LIMITS.get(attr)
+                    is_url = attr.endswith("_url") or attr == "keywords"
 
-                    new_val = _field_with_limit(
-                        attr=attr,
-                        value=val,
-                        key=f"edit_{loc_id}",
-                        height=height,
-                        locale=locale  # ← PASS LOCALE HERE
-                    )
+                    # Height for large fields
+                    height = 160 if attr in ["description", "promotional_text", "whats_new"] else 80
 
-                    changes[loc_id] = new_val or None
+                    # Unique key for input
+                    input_key = f"edit_{loc_id}"
+
+                    # Default value
+                    default_text = val
+
+                    # Create input
+                    if is_url:
+                        user_text = st.text_input(
+                            label=locale.upper(),
+                            value=default_text,
+                            key=input_key,
+                            label_visibility="collapsed"
+                        )
+                    else:
+                        user_text = st.text_area(
+                            label=locale.upper(),
+                            value=default_text,
+                            key=input_key,
+                            height=height,
+                            label_visibility="collapsed"
+                        )
+
+                    # --- Real-time Check ---
+                    if limit and len(user_text) > limit:
+                        # Yellow border + warning
+                        st.markdown(
+                            f"""
+                            <div style="
+                                border: 2px solid #ff9800;
+                                border-radius: 6px;
+                                padding: 8px;
+                                background-color: #fff8e1;
+                                font-size: 13px;
+                                color: #e65100;
+                                margin-top: 5px;
+                            ">
+                                <strong>Warning:</strong> Limit is <strong>{limit}</strong> characters, 
+                                but you have <strong>{len(user_text)}</strong> 
+                                ({len(user_text) - limit} extra)
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                    elif limit:
+                        # Normal counter
+                        st.markdown(
+                            f"<small style='color: gray;'>"
+                            f"{len(user_text)} / {limit} characters</small>",
+                            unsafe_allow_html=True
+                        )
+
+                    # Store change
+                    changes[loc_id] = user_text or None
                     st.markdown("---")
 
                 # -------------------------------
                 # SAVE BUTTON
                 # -------------------------------
-                if st.button("Save Changes"):
-                    success = True
-                    for loc_id, val in changes.items():
-                        func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
-                        if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
-                            success = False
-                    if success:
-                        st.success("Saved successfully!")
-                        sync_db_to_github()
-                        # Optional: Clear auto-fill after save
-                        for loc in locales:
-                            key = f"auto_{attr}_{loc}"
-                            if key in st.session_state:
-                                del st.session_state[key]
-                    else:
-                        st.error("Save failed.")
+                # Block save if any field exceeds
+                exceeded = [
+                    f"{locale.upper()} ({len(user_text)} > {limit})"
+                    for loc_id, user_text in changes.items()
+                    if user_text and FIELD_LIMITS.get(attr) and len(user_text) > FIELD_LIMITS[attr]
+                    for locale in [data[data["localization_id"] == loc_id]["locale"].iloc[0]]
+                ]
+
+                if exceeded and st.button("Save Changes"):
+                    st.error(f"Cannot save! Fix {len(exceeded)} field(s) exceeding limit:\n" + ", ".join(exceeded))
+                else:
+                    if st.button("Save Changes"):
+                        # your existing save code
+                        success = True
+                        for loc_id, val in changes.items():
+                            func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
+                            if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
+                                success = False
+                        if success:
+                            st.success("Saved successfully!")
+                            sync_db_to_github()
+                            for loc in locales:
+                                key = f"auto_{attr}_{loc}"
+                                if key in st.session_state:
+                                    del st.session_state[key]
+                        else:
+                            st.error("Save failed.")
 
         platform = None
         if attr == 'screenshots':
@@ -1195,4 +1217,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
