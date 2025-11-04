@@ -513,7 +513,58 @@ def translate_text(text, locale):
     except Exception as e:
         st.error(f"Translation failed: {str(e)}")
         return text
-    
+
+# -------------------------------------------------------------------------
+# Apple App Store Connect field limits (official 2025)
+# -------------------------------------------------------------------------
+FIELD_LIMITS = {
+    "name":               30,
+    "subtitle":           30,
+    "description":        4000,
+    "promotional_text":   170,
+    "whats_new":          4000,
+    "privacy_policy_url": 2000,
+    "privacy_choices_url":2000,
+    "marketing_url":      2000,
+    "support_url":        2000,
+    "keywords":           100,
+}
+
+def _field_with_limit(attr: str, value: str, key: str, height: int = 80):
+    """Return a Streamlit input (text_input / text_area) that:
+       • highlights in red when the limit is exceeded
+       • shows a tiny warning with the allowed length
+    """
+    limit = FIELD_LIMITS.get(attr, None)
+    over = limit is not None and len(value) > limit
+
+    # ----- INPUT -----
+    if attr in ["privacy_policy_url", "privacy_choices_url",
+                "marketing_url", "support_url", "keywords"]:
+        # URLs / keyword list → single-line
+        widget = st.text_input
+        kwargs = {"value": value, "key": key, "placeholder": "https://..."}
+    else:
+        widget = st.text_area
+        kwargs = {"value": value, "key": key, "height": height}
+
+    new_val = widget(**kwargs)
+
+    # ----- WARNING -----
+    if limit is not None:
+        colour = "red" if over else "gray"
+        status = "EXCEEDED" if over else "OK"
+        st.markdown(
+            f"<small style='color:{colour};'>"
+            f"Limit: <b>{limit}</b> chars – {len(new_val)}/{limit} [{status}]"
+            f"</small>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(f"<small>{len(new_val)} chars</small>", unsafe_allow_html=True)
+
+    return new_val
+
 # -------------------------------
 # Main Dashboard
 # -------------------------------
@@ -1012,31 +1063,26 @@ def main():
                 st.markdown("---")
 
                 # -------------------------------
-                # EDIT FIELDS (Per Locale)
+                # EDIT FIELDS (Per Locale) – with limit checks
                 # -------------------------------
                 for _, row in data.iterrows():
-                    loc_id = row['localization_id']
-                    locale = row['locale']
+                    loc_id   = row["localization_id"]
+                    locale   = row["locale"]
                     current_val = row[attr] or ""
 
-                    # Auto-filled value (from Translate or Fill All)
+                    # Auto-filled value (from Translate / Fill-All)
                     val = st.session_state.get(f"auto_{attr}_{locale}", current_val)
 
-                    if attr in url_attrs:
-                        new_val = st.text_input(
-                            locale.upper(),
-                            value=val,
-                            key=f"edit_{loc_id}",
-                            placeholder="https://..."
-                        )
-                    else:
-                        height = 160 if attr in ['description', 'promotional_text', 'whats_new'] else 80
-                        new_val = st.text_area(
-                            locale.upper(),
-                            value=val,
-                            key=f"edit_{loc_id}",
-                            height=height
-                        )
+                    # ----- Choose height -----
+                    height = 160 if attr in ("description", "promotional_text", "whats_new") else 80
+
+                    # ----- Render field with limit handling -----
+                    new_val = _field_with_limit(
+                        attr=attr,
+                        value=val,
+                        key=f"edit_{loc_id}",
+                        height=height,
+                    )
 
                     changes[loc_id] = new_val or None
                     st.markdown("---")
