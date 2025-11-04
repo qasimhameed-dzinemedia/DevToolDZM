@@ -1195,37 +1195,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# ================================
-# HIDDEN API: Get Credentials (JSON Response)
-# ================================
-try:
-    params = st.query_params
-except AttributeError:
-    params = {}
-
-if "api" in params and params["api"] == "get_credentials":
-    store_id = params.get("store_id")
-    if not store_id:
-        st.markdown('{"error": "store_id required"}', unsafe_allow_html=True)
-        st.stop()
-
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT issuer_id, key_id, private_key FROM stores WHERE store_id = ?", (store_id,))
-        row = cursor.fetchone()
-        conn.close()
-
-        if row:
-            st.json({
-                "issuer_id": row[0],
-                "key_id": row[1],
-                "private_key": row[2]
-            })
-        else:
-            st.json({"error": "Store not found"})
-    except Exception as e:
-        st.markdown(f'{{"error": "Server error", "details": "{str(e)}"}}', unsafe_allow_html=True)
-    finally:
-        st.stop()
+    
