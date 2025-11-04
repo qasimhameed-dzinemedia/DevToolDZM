@@ -198,7 +198,7 @@ def login():
         st.markdown(
     """
     <h2 style='text-align:center; margin-bottom: 25px;'>
-        🔒 App Store Metadata Manager
+        App Store Metadata Manager
     </h2>
     """,
     unsafe_allow_html=True
@@ -261,13 +261,9 @@ def search_itunes_apps(term, country, entity):
         return []
 
 # -------------------------------
-# New: Scrape App Store Page for Name, Subtitle, Description
+# Scrape App Store Page
 # -------------------------------
 def scrape_appstore_page(track_view_url):
-    """
-    Scrape the App Store page for name, subtitle, and full description.
-    Returns dict: {'name': str, 'subtitle': str, 'description': str}
-    """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
@@ -275,14 +271,9 @@ def scrape_appstore_page(track_view_url):
         response = requests.get(track_view_url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
-
-        # Extract subtitle: h2 below name
         subtitle_elem = soup.find('h2', class_='product-header__subtitle') or soup.find('div', {'data-testid': 'product-subtitle'})
         subtitle = subtitle_elem.get_text(strip=True) if subtitle_elem else 'No subtitle available'
-
-        return {
-            'subtitle': subtitle
-        }
+        return {'subtitle': subtitle}
     except Exception as e:
         st.error(f"Scraping failed for {track_view_url}: {e}")
         return None
@@ -332,7 +323,7 @@ def get_apps_list(store_id):
     return df
 
 # -------------------------------
-# Get Stores (Admin: all, User: assigned only)
+# Get Stores
 # -------------------------------
 def get_stores():
     conn = get_db_connection()
@@ -383,10 +374,9 @@ def delete_store(store_id):
     conn.close()
 
 # -------------------------------
-# User Management Functions (New)
+# User Management
 # -------------------------------
 def delete_user(user_id):
-    """Delete user and all their store assignments."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM user_stores WHERE user_id = ?", (user_id,))
@@ -397,7 +387,6 @@ def delete_user(user_id):
     return deleted
 
 def remove_user_store_access(user_id, store_id):
-    """Remove specific store access from user."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM user_stores WHERE user_id = ? AND store_id = ?", (user_id, store_id))
@@ -407,7 +396,7 @@ def remove_user_store_access(user_id, store_id):
     return removed
 
 # -------------------------------
-# Update DB Attribute
+# Sync & Attribute Functions
 # -------------------------------
 def update_db_attribute(table, localization_id, attribute, value, store_id):
     conn = get_db_connection()
@@ -419,9 +408,6 @@ def update_db_attribute(table, localization_id, attribute, value, store_id):
     conn.commit()
     conn.close()
 
-# -------------------------------
-# Sync & Attribute Functions
-# -------------------------------
 def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_key, platform=None):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -531,8 +517,8 @@ def translate_text(text, locale):
 # Main Dashboard
 # -------------------------------
 def main():
-    st.set_page_config(page_title="App Metadata Dashboard", page_icon="📊", layout="wide")
-    st.title("📱 App Metadata Dashboard")
+    st.set_page_config(page_title="App Metadata Dashboard", page_icon="Chart", layout="wide")
+    st.title("App Metadata Dashboard")
 
     if not check_database_exists():
         initialize_database()
@@ -542,7 +528,7 @@ def main():
 
     # --- Logout Button ---
     if st.sidebar.button("Logout", key="logout_main"):
-        st.session_state['confirm_logout'] = True  # trigger confirmation
+        st.session_state['confirm_logout'] = True
     if st.session_state.get('confirm_logout', False):
         st.sidebar.warning("Are you sure you want to log out?")
         col1, col2 = st.sidebar.columns(2)
@@ -596,7 +582,6 @@ def main():
                     st.success("Assigned!")
                     conn.close()
 
-            # --- NEW: Remove Store Access ---
             st.subheader("Remove Store Access")
             if not users_df.empty and not stores_df.empty:
                 remove_user_id = st.selectbox("User", users_df['id'], format_func=lambda x: users_df[users_df['id']==x]['username'].iloc[0], key="remove_user_select")
@@ -608,7 +593,6 @@ def main():
                         st.warning("No access found to remove.")
                     st.rerun()
 
-                # Confirmation for Remove Access
                 if st.session_state.get('confirm_remove_access', False):
                     st.warning("Are you sure you want to remove this store access?")
                     col1, col2 = st.columns(2)
@@ -622,7 +606,6 @@ def main():
                             del st.session_state['confirm_remove_access']
                             st.rerun()
 
-            # --- NEW: Delete User ---
             st.subheader("Delete User")
             if not users_df.empty:
                 delete_user_id = st.selectbox("User to Delete", users_df['id'], format_func=lambda x: users_df[users_df['id']==x]['username'].iloc[0], key="delete_user_select")
@@ -644,39 +627,39 @@ def main():
                             del st.session_state['confirm_delete_user']
                             st.rerun()
 
-    # Stores
+    # -------------------------------
+    # PERSISTENT STORE & APP SELECTION
+    # -------------------------------
+    if 'selected_store_id' not in st.session_state:
+        st.session_state.selected_store_id = None
+    if 'selected_app_id' not in st.session_state:
+        st.session_state.selected_app_id = None
+
     stores_df = get_stores()
-
-    # Add Store – ONLY ADMIN
-    if st.session_state.is_admin:
-        with st.sidebar.expander("➕ Add New Store"):
-            name = st.text_input("Store Name")
-            issuer_id = st.text_input("Issuer ID")
-            key_id = st.text_input("Key ID")
-            private_key = st.text_area("Private Key")
-            if st.button("Add Store"):
-                if name and issuer_id and key_id and private_key:
-                    store_id = add_store(name, issuer_id, key_id, private_key)
-                    with st.spinner("Fetching..."):
-                        success = fetch_and_store_apps(store_id, issuer_id, key_id, private_key)
-                        if success:
-                            st.success("Store added and data fetched!")
-                        else:
-                            st.error("Store added, but data fetch failed.")
-                    sync_db_to_github()
-                    st.rerun()
-
     if stores_df.empty:
         st.warning("No stores assigned!")
         return
 
     store_options = {row['name']: row['store_id'] for _, row in stores_df.iterrows()}
-    selected_store_name = st.sidebar.selectbox("Select Store", list(store_options.keys()))
-    selected_store_id = store_options[selected_store_name]
+    store_names = list(store_options.keys())
 
-    # --- ADMIN: DELETE STORE BUTTON (with confirmation) ---
+    def on_store_change():
+        st.session_state.selected_store_id = store_options[st.session_state.store_selectbox]
+        st.session_state.selected_app_id = None  # Reset app on store change
+
+    selected_store_name = st.sidebar.selectbox(
+        "Select Store",
+        store_names,
+        index=store_names.index(st.session_state.get('last_store_name', store_names[0])) if st.session_state.get('last_store_name') in store_names else 0,
+        key="store_selectbox",
+        on_change=on_store_change
+    )
+    st.session_state.last_store_name = selected_store_name
+    selected_store_id = st.session_state.selected_store_id = store_options[selected_store_name]
+
+    # --- ADMIN: DELETE STORE ---
     if st.session_state.is_admin:
-        if st.sidebar.button("🗑️", key="delete_current_store"):
+        if st.sidebar.button("Delete Store", key="delete_current_store"):
             st.session_state['confirm_delete_store'] = selected_store_id
             st.session_state['confirm_delete_name'] = selected_store_name
 
@@ -689,6 +672,8 @@ def main():
                     if 'confirm_delete_store' in st.session_state:
                         del st.session_state['confirm_delete_store']
                         del st.session_state['confirm_delete_name']
+                        del st.session_state.last_store_name
+                        st.session_state.selected_store_id = None
                     st.success(f"Store `{selected_store_name}` deleted!")
                     st.rerun()
             with col2:
@@ -699,7 +684,8 @@ def main():
                     st.rerun()
 
     issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
-    if st.sidebar.button("🔄 Fetch Data for Store"):
+
+    if st.sidebar.button("Fetch Data for Store"):
         with st.spinner("Fetching..."):
             success = fetch_and_store_apps(selected_store_id, issuer_id, key_id, private_key)
             if success:
@@ -709,81 +695,62 @@ def main():
         sync_db_to_github()
         st.rerun()
 
+    # Add Store – ONLY ADMIN
+    if st.session_state.is_admin:
+        with st.sidebar.expander("Add New Store"):
+            name = st.text_input("Store Name")
+            issuer_id_input = st.text_input("Issuer ID")
+            key_id_input = st.text_input("Key ID")
+            private_key_input = st.text_area("Private Key")
+            if st.button("Add Store"):
+                if name and issuer_id_input and key_id_input and private_key_input:
+                    store_id = add_store(name, issuer_id_input, key_id_input, private_key_input)
+                    with st.spinner("Fetching..."):
+                        success = fetch_and_store_apps(store_id, issuer_id_input, key_id_input, private_key_input)
+                        if success:
+                            st.success("Store added and data fetched!")
+                            st.session_state.selected_store_id = store_id
+                            st.session_state.selected_app_id = None
+                            st.session_state.last_store_name = name
+                        else:
+                            st.error("Store added, but data fetch failed.")
+                    sync_db_to_github()
+                    st.rerun()
+
     apps_df = get_apps_list(selected_store_id)
     if apps_df.empty:
         st.warning("No apps! Fetch data first.")
         return
 
-    st.sidebar.header("📱 Search Apps")
     app_options = {row['name']: row['app_id'] for _, row in apps_df.iterrows()}
-    selected_app_name = st.sidebar.selectbox("Select App", list(app_options.keys()))
-    selected_app_id = app_options[selected_app_name]
+    app_names = list(app_options.keys())
+
+    def on_app_change():
+        st.session_state.selected_app_id = app_options[st.session_state.app_selectbox]
+
+    default_app_index = 0
+    if st.session_state.selected_app_id and st.session_state.selected_app_id in app_options.values():
+        default_name = next((n for n, aid in app_options.items() if aid == st.session_state.selected_app_id), app_names[0])
+        default_app_index = app_names.index(default_name)
+
+    selected_app_name = st.sidebar.selectbox(
+        "Select App",
+        app_names,
+        index=default_app_index,
+        key="app_selectbox",
+        on_change=on_app_change
+    )
+    selected_app_id = st.session_state.selected_app_id = app_options[selected_app_name]
 
     # ------------------------------------------------------------------
-    #  Check Localization – Simple: CODE → Full Name
+    # Localization Coverage
     # ------------------------------------------------------------------
     if st.sidebar.button("Check Localization", key="btn_check_loc"):
         st.session_state["show_loc_table"] = True
 
-
     if st.session_state.get("show_loc_table"):
         st.markdown("## Localization Coverage")
-
-        # ---- Locale mapping ----
-        locale_names = {
-            "AR-SA": "Arabic (Saudi Arabia)",
-            "CA":    "Catalan",
-            "CS":    "Czech",
-            "DA":    "Danish",
-            "DE-DE": "German (Germany)",
-            "EL":    "Greek",
-            "EN-AU": "English (Australia)",
-            "EN-CA": "English (Canada)",
-            "EN-GB": "English (United Kingdom)",
-            "EN-US": "English (United States)",
-            "ES-ES": "Spanish (Spain)",
-            "ES-MX": "Spanish (Mexico)",
-            "FI":    "Finnish",
-            "FR-CA": "French (Canada)",
-            "FR-FR": "French (France)",
-            "HE":    "Hebrew",
-            "HI":    "Hindi",
-            "HR":    "Croatian",
-            "HU":    "Hungarian",
-            "ID":    "Indonesian",
-            "IT":    "Italian",
-            "JA":    "Japanese",
-            "KO":    "Korean",
-            "MS":    "Malay",
-            "NL-NL": "Dutch (Netherlands)",
-            "NO":    "Norwegian",
-            "PL":    "Polish",
-            "PT-BR": "Portuguese (Brazil)",
-            "PT-PT": "Portuguese (Portugal)",
-            "RO":    "Romanian",
-            "RU":    "Russian",
-            "SK":    "Slovak",
-            "SV":    "Swedish",
-            "TH":    "Thai",
-            "TR":    "Turkish",
-            "UK":    "Ukrainian",
-            "VI":    "Vietnamese",
-            "ZH-HANS": "Chinese (Simplified)",
-            "ZH-HANT": "Chinese (Traditional)",
-            "BN":     "Bengali",                   
-            "FA":     "Persian (Farsi)",            
-            "GU":     "Gujarati",                  
-            "KN":     "Kannada",                   
-            "ML":     "Malayalam",                  
-            "MR":     "Marathi",                    
-            "PA":     "Punjabi",                    
-            "TA":     "Tamil",                      
-            "TE":     "Telugu",                     
-            "UR":     "Urdu",                       
-            "NB":     "Norwegian Bokmål"            
-        }
-
-        # ---- Get data from DB ----
+        locale_names = { ... }  # (your full dict)
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -808,32 +775,23 @@ def main():
             total_apps = len(rows)
             st.markdown(f"**Total Apps:** `{total_apps}`")
             st.markdown("---")
-
             for idx, (app_name, locale_csv) in enumerate(rows, start=1):
                 codes = [c.strip().upper() for c in (locale_csv or "").split(",") if c.strip()]
-                langs = []
-                for code in codes:
-                    if code in locale_names:
-                        langs.append(f"`{code}` → {locale_names[code]}")
+                langs = [f"`{code}` → {locale_names.get(code, code)}" for code in codes]
                 if not langs:
                     langs = ["`EN-US` → English (United States)"]
-
-                # Sort by full name
                 langs.sort(key=lambda x: x.split("→")[-1].strip())
-
-                # Language count
                 lang_count = len(langs)
-
                 st.markdown(f"**{idx}. {app_name}** — `{lang_count}` language{'s' if lang_count != 1 else ''}")
-
                 st.caption(" | ".join(langs))
                 st.markdown("---")
-
-        # ---- Close button ----
         if st.button("Close"):
             del st.session_state["show_loc_table"]
             st.rerun()
 
+    # -------------------------------
+    # Title + Refresh + Search
+    # -------------------------------
     col_title, col_refresh, col_search = st.columns([3, 1, 1])
     with col_title:
         st.markdown(f"### {selected_app_name}")
@@ -845,6 +803,7 @@ def main():
                     st.success("Refreshed!")
                 else:
                     st.error("Refresh failed.")
+            sync_db_to_github()
             st.rerun()
     with col_search:
         if st.button("Search iTunes"):
@@ -852,7 +811,7 @@ def main():
 
     st.caption(f"App ID: `{selected_app_id}`")
 
-    # iTunes Search – Updated with Scraping
+    # iTunes Search
     if st.session_state.get('show_itunes_search'):
         with st.expander("iTunes App Search – Copy Metadata", expanded=True):
             col1, col2, col3 = st.columns([2, 1, 1])
@@ -873,7 +832,7 @@ def main():
                 for app in results:
                     name = app.get("trackName", "Unknown")
                     bundle = app.get("bundleId", "")
-                    track_view_url = app.get("trackViewUrl", "")  # New: Get the URL
+                    track_view_url = app.get("trackViewUrl", "")
                     icon = app.get("artworkUrl100", "")
                     desc = app.get("description", "")[:100] + "..."
                     with st.container():
@@ -882,33 +841,30 @@ def main():
                             if icon: st.image(icon, width=60)
                         with c2:
                             st.markdown(f"**{name}**")
-                            st.markdown(f"[View on App Store]({track_view_url})")  # New: Link to App Store
+                            st.markdown(f"[View on App Store]({track_view_url})")
                             st.caption(f"`{bundle}`")
                             st.caption(desc)
                         with c3:
                             if st.button("Use This", key=f"use_{bundle}"):
-                                # New: Scrape the page first
                                 scraped_data = scrape_appstore_page(track_view_url) if track_view_url else None
                                 if scraped_data:
-                                    st.session_state["source_text_name"] = name                                   
-                                    st.session_state["source_text_subtitle"] = scraped_data['subtitle']  # New: Subtitle
+                                    st.session_state["source_text_name"] = name
+                                    st.session_state["source_text_subtitle"] = scraped_data['subtitle']
                                     st.session_state["source_text_description"] = app.get("description", "")
                                     st.success(f"Scraped and copied")
                                 else:
-                                    # Fallback to API data
                                     st.session_state["source_text_name"] = name
                                     st.session_state["source_text_description"] = app.get("description", "")
-                                    st.warning(f"Scraping failed for {name}, using API data as fallback.")
-                                
-                                # New: Auto-select 'name' attribute if not selected (to show fields)
-                                if 'selected_attribute' not in st.session_state or st.session_state['selected_attribute'] not in ['name', 'subtitle']:
+                                    st.warning(f"Scraping failed for {name}, using API data.")
+                                if 'selected_attribute' not in st.session_state:
                                     st.session_state['selected_attribute'] = 'name'
-                                
                                 st.session_state['show_itunes_search'] = False
-                                # st.rerun()
+                                st.rerun()
                     st.markdown("---")
 
+    # -------------------------------
     # Editing Area
+    # -------------------------------
     col_left, col_right = st.columns([1, 3])
 
     with col_left:
@@ -917,21 +873,10 @@ def main():
             'description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new'
         ]
         for attr in attributes:
-            emoji = {
-                'name': '📛',
-                'subtitle': '📝',
-                'privacy_policy_url': '🔒',
-                'privacy_choices_url': '⚙️',
-                'description': '📖',
-                'keywords': '🔍',
-                'marketing_url': '📣',
-                'promotional_text': '🎉',
-                'support_url': '🛠️',
-                'whats_new': '✨'
-            }.get(attr, '')
+            emoji = { ... }  # your emoji dict
             col_btn, col_sync = st.columns([3, 1])
             with col_btn:
-                if st.button(f"{emoji} {attr.capitalize()}", key=f"attr_{attr}"):
+                if st.button(f"{emoji.get(attr, '')} {attr.capitalize()}", key=f"attr_{attr}"):
                     st.session_state['selected_attribute'] = attr
             with col_sync:
                 if st.button("Sync", key=f"sync_{attr}"):
@@ -947,7 +892,7 @@ def main():
 
         col_btn, col_sync = st.columns([3, 1])
         with col_btn:
-            if st.button("🖼️ Screenshots", key="attr_screenshots"):
+            if st.button("Screenshots", key="attr_screenshots"):
                 st.session_state['selected_attribute'] = 'screenshots'
         with col_sync:
             if st.button("Sync", key="sync_screenshots"):
@@ -970,7 +915,6 @@ def main():
                 st.markdown("---")
 
             data, table = get_attribute_data(attr, selected_app_id, selected_store_id, platform)
-            # === AFTER: data, table = get_attribute_data(...) ===
             if data.empty:
                 st.warning(f"No data found for {attr.capitalize()}.")
             else:
@@ -979,9 +923,6 @@ def main():
                 changes = {}
                 locales = data['locale'].tolist()
 
-                # -------------------------------
-                # SOURCE TEXT BOX (English)
-                # -------------------------------
                 source_text = st.text_area(
                     "Source Text (English)", 
                     value=st.session_state.get(f"source_text_{attr}", ""),
@@ -991,9 +932,6 @@ def main():
                 )
                 st.session_state[f"source_text_{attr}"] = source_text
 
-                # -------------------------------
-                # TRANSLATE ALL (Only for Text Fields)
-                # -------------------------------
                 text_attrs = ['name', 'subtitle', 'description', 'keywords', 'promotional_text', 'whats_new']
                 if attr in text_attrs:
                     if st.button("Translate All"):
@@ -1006,11 +944,7 @@ def main():
                                     time.sleep(4)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
-                            # NO st.rerun() — UI auto update hoga
 
-                # -------------------------------
-                # FILL ALL (Only for URL Fields)
-                # -------------------------------
                 url_attrs = ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']
                 if attr in url_attrs:
                     if st.button("Fill All Locales"):
@@ -1020,68 +954,33 @@ def main():
                             for loc in locales:
                                 st.session_state[f"auto_{attr}_{loc}"] = source_text.strip()
                             st.success(f"Filled '{attr}' for all {len(locales)} locales!")
-                            # NO st.rerun()
 
                 st.markdown("---")
 
-                # -------------------------------
-                # EDIT FIELDS (Per Locale) – Real-time yellow warning
-                # -------------------------------
                 for _, row in data.iterrows():
                     loc_id = row["localization_id"]
                     locale = row["locale"]
                     current_val = row[attr] or ""
-
-                    # Auto-fill from translation or "Fill All"
                     val = st.session_state.get(f"auto_{attr}_{locale}", current_val)
-
                     limit = FIELD_LIMITS.get(attr)
                     is_url = attr.endswith("_url") or attr == "keywords"
-
-                    # Height for large fields
                     height = 160 if attr in ["description", "promotional_text", "whats_new"] else 80
-
-                    # Unique key for input
                     input_key = f"edit_{loc_id}"
 
-                    # Default value
-                    default_text = val
-
-                    # Create input
                     if is_url:
-                        user_text = st.text_input(
-                            label=locale.upper(),
-                            value=default_text,
-                            key=input_key
-                        )
+                        user_text = st.text_input(locale.upper(), value=val, key=input_key)
                     else:
-                        user_text = st.text_area(
-                            label=locale.upper(),
-                            value=default_text,
-                            key=input_key,
-                            height=height
-                        )
+                        user_text = st.text_area(locale.upper(), value=val, key=input_key, height=height)
 
-                    # --- Real-time Check ---
                     if limit and len(user_text) > limit:
-                        st.error(
-                            f"Warning: Limit: **{limit}** chars | "
-                            f"You have: **{len(user_text)}** "
-                            f"(**+{len(user_text) - limit}** extra)"
-                        )
+                        st.error(f"Warning: Limit: **{limit}** chars | You have: **{len(user_text)}** (+{len(user_text) - limit} extra)")
                     elif limit:
                         st.caption(f"{len(user_text)} / {limit} characters")
 
-                    # Store change
                     changes[loc_id] = user_text or None
                     st.markdown("---")
 
-                # -------------------------------
-                # SAVE BUTTON – UNIQUE KEYS + LIMIT CHECK
-                # -------------------------------
                 save_key = f"save_changes_{attr}_{selected_app_id}"
-
-                # Check for exceeded limits
                 exceeded = [
                     f"{data[data['localization_id'] == loc_id]['locale'].iloc[0].upper()} ({len(val)} > {FIELD_LIMITS[attr]})"
                     for loc_id, val in changes.items()
@@ -1089,113 +988,77 @@ def main():
                 ]
 
                 if exceeded:
-                    st.error(
-                        f"Cannot save! Fix {len(exceeded)} field(s) exceeding limit:\n" +
-                        ", ".join(exceeded)
-                    )
+                    st.error(f"Cannot save! Fix {len(exceeded)} field(s) exceeding limit:\n" + ", ".join(exceeded))
                     st.button("Save Changes", disabled=True, key=f"{save_key}_disabled")
                 else:
                     if st.button("Save Changes", key=save_key):
                         with st.spinner("Saving..."):
                             success = True
                             for loc_id, val in changes.items():
-                                func = (
-                                    patch_app_info_localization
-                                    if 'app_info' in table
-                                    else patch_app_store_version_localization
-                                )
+                                func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
                                 if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
                                     success = False
                             if success:
                                 st.success("Saved successfully!")
                                 sync_db_to_github()
-                                # Clear auto-fill
                                 for loc in locales:
                                     key = f"auto_{attr}_{loc}"
                                     if key in st.session_state:
                                         del st.session_state[key]
                             else:
                                 st.error("Save failed.")
+                            st.rerun()
 
-        platform = None
         if attr == 'screenshots':
             platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select")
             st.session_state['platform'] = platform
             st.markdown("---")
-            
             df = load_screenshots(selected_app_id, selected_store_id, platform)
             if df.empty:
                 st.warning(f"No screenshots found for {platform}.")
             else:
                 st.markdown(f"#### Editing Screenshots for {platform}")
                 st.markdown("---")
-                
                 changes = {}
-                
                 for locale, loc_group in df.groupby('locale'):
                     with st.expander(f"{locale.upper()} Locale", expanded=True):
                         for disp_type, disp_group in loc_group.groupby('display_type'):
-                            # Clean display type name
                             clean_name = disp_type.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').title()
                             count = len(disp_group)
                             st.markdown(f"**{clean_name}** ({count} screenshot{'' if count == 1 else 's'})")
-                            
-                            # Get list of screenshots
                             screenshots = list(disp_group.itertuples())
                             n = len(screenshots)
-                            
-                            # Dynamic columns: max 4 per row
                             cols_per_row = min(n, 4)
                             rows_needed = (n + cols_per_row - 1) // cols_per_row
-
                             for row_idx in range(rows_needed):
                                 start = row_idx * cols_per_row
                                 end = min(start + cols_per_row, n)
                                 current_batch = screenshots[start:end]
-                                
-                                # Create exact number of columns for this row
                                 cols = st.columns(len(current_batch))
-                                
                                 for idx, row in enumerate(current_batch):
                                     with cols[idx]:
-                                        # --- IMAGE (Fixed Size) ---
-                                        st.image(
-                                            row.url,
-                                            use_column_width=True,  # This now works because column is narrow
-                                            caption=f"{row.width}×{row.height}"
-                                        )
-                                        
-                                        # --- INPUT BOX (Compact) ---
-                                        new_url = st.text_input(
-                                            "Replace URL",
-                                            value="",
-                                            key=f"shot_{row.localization_id}_{disp_type}_{row.Index}",
-                                            placeholder="Paste new image URL",
-                                            label_visibility="collapsed"  # Hide label to save space
-                                        )
-                                        
+                                        st.image(row.url, use_column_width=True, caption=f"{row.width}×{row.height}")
+                                        new_url = st.text_input("Replace URL", value="", key=f"shot_{row.localization_id}_{disp_type}_{row.Index}", placeholder="Paste new image URL", label_visibility="collapsed")
                                         if new_url.strip():
                                             changes[f"{row.localization_id}_{disp_type}_{row.Index}"] = {
                                                 'localization_id': row.localization_id,
                                                 'display_type': disp_type,
                                                 'new_url': new_url.strip()
                                             }
-                            
-                            st.markdown("---")  # Separator between display types
+                            st.markdown("---")
 
-                # === SAVE BUTTON ===
                 if st.button("Save All Screenshot Changes", key="save_screenshots"):
                     if not changes:
                         st.warning("No new URLs entered.")
                     else:
-                        with st.spinner("Updating screenshots on App Store Connect..."):
+                        with st.spinner("Updating screenshots..."):
                             success = patch_screenshots(selected_app_id, selected_store_id, changes, issuer_id, key_id, private_key)
                             if success:
-                                st.success("Screenshots updated successfully!")
+                                st.success("Screenshots updated!")
                                 sync_db_to_github()
                                 st.rerun()
                             else:
-                                st.error("Failed to update. Check URLs or permissions.")
+                                st.error("Failed to update.")
 
     st.markdown("---")
     st.markdown(
