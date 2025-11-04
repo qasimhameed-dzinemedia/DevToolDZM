@@ -1096,35 +1096,45 @@ def main():
                     st.markdown("---")
 
                 # -------------------------------
-                # SAVE BUTTON
+                # SAVE BUTTON – UNIQUE KEYS + LIMIT CHECK
                 # -------------------------------
-                # Block save if any field exceeds
+                save_key = f"save_changes_{attr}_{selected_app_id}"
+
+                # Check for exceeded limits
                 exceeded = [
-                    f"{locale.upper()} ({len(user_text)} > {limit})"
-                    for loc_id, user_text in changes.items()
-                    if user_text and FIELD_LIMITS.get(attr) and len(user_text) > FIELD_LIMITS[attr]
-                    for locale in [data[data["localization_id"] == loc_id]["locale"].iloc[0]]
+                    f"{data[data['localization_id'] == loc_id]['locale'].iloc[0].upper()} ({len(val)} > {FIELD_LIMITS[attr]})"
+                    for loc_id, val in changes.items()
+                    if val and FIELD_LIMITS.get(attr) and len(val) > FIELD_LIMITS[attr]
                 ]
 
-                if exceeded and st.button("Save Changes"):
-                    st.error(f"Cannot save! Fix {len(exceeded)} field(s) exceeding limit:\n" + ", ".join(exceeded))
+                if exceeded:
+                    st.error(
+                        f"Cannot save! Fix {len(exceeded)} field(s) exceeding limit:\n" +
+                        ", ".join(exceeded)
+                    )
+                    st.button("Save Changes", disabled=True, key=f"{save_key}_disabled")
                 else:
-                    if st.button("Save Changes"):
-                        # your existing save code
-                        success = True
-                        for loc_id, val in changes.items():
-                            func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
-                            if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
-                                success = False
-                        if success:
-                            st.success("Saved successfully!")
-                            sync_db_to_github()
-                            for loc in locales:
-                                key = f"auto_{attr}_{loc}"
-                                if key in st.session_state:
-                                    del st.session_state[key]
-                        else:
-                            st.error("Save failed.")
+                    if st.button("Save Changes", key=save_key):
+                        with st.spinner("Saving..."):
+                            success = True
+                            for loc_id, val in changes.items():
+                                func = (
+                                    patch_app_info_localization
+                                    if 'app_info' in table
+                                    else patch_app_store_version_localization
+                                )
+                                if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
+                                    success = False
+                            if success:
+                                st.success("Saved successfully!")
+                                sync_db_to_github()
+                                # Clear auto-fill
+                                for loc in locales:
+                                    key = f"auto_{attr}_{loc}"
+                                    if key in st.session_state:
+                                        del st.session_state[key]
+                            else:
+                                st.error("Save failed.")
 
         platform = None
         if attr == 'screenshots':
