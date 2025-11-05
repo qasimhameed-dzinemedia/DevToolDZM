@@ -1214,7 +1214,8 @@ def main():
                 st.markdown("---")
                 changes = {}
                 for locale, loc_group in df.groupby('locale'):
-                    with st.expander(f"{locale.upper()} Locale", expanded=True):
+                    full_name = locale_names.get(locale.upper(), locale.upper())
+                    with st.expander(f"{locale.upper()} – {full_name}", expanded=True):
                         for disp_type, disp_group in loc_group.groupby('display_type'):
                             clean_name = disp_type.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').title()
                             count = len(disp_group)
