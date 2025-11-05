@@ -92,7 +92,7 @@ locale_names = {
 # -------------------------------
 # Gemini AI Setup
 # -------------------------------
-GEMINI_API_KEY = "AIzaSyAIB-Br-ZJtMBs5f8beL_JUpDAKW4ygYYk"
+GEMINI_API_KEY = "AIzaSyCoIwS0zRQ0CTl4WY8et_QDTOUrIIuB3iA"
 gemini_model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
