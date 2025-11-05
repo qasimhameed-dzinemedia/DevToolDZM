@@ -534,6 +534,72 @@ def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_
     conn.close()
     return success
 
+# -------------------------------
+# UNIVERSAL: Patch Attribute Data (Text + Screenshots)
+# -------------------------------
+def patch_attribute_data(attribute, app_id, store_id, changes, issuer_id, key_id, private_key, platform=None):
+    """
+    Patches ANY attribute: text fields OR screenshots.
+    
+    Parameters
+    ----------
+    attribute : str
+        'name', 'description', 'screenshots', etc.
+    changes : dict
+        For text: {localization_id: "new text"}
+        For screenshots: {shot_key: {"localization_id": ..., "display_type": ..., "new_url": ...}}
+    """
+    print(f"[PATCH] Starting patch for: {attribute} | App: {app_id} | Platform: {platform}")
+
+    success = True
+
+    # ========================================
+    # 1. TEXT ATTRIBUTES (name, description, etc.)
+    # ========================================
+    if attribute != 'screenshots':
+        patch_func = (
+            patch_app_info_localization 
+            if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url'] 
+            else patch_app_store_version_localization
+        )
+
+        for loc_id, value in changes.items():
+            if value is not None:
+                if not patch_func(loc_id, {attribute: value}, issuer_id, key_id, private_key):
+                    st.error(f"Failed: {attribute} → Locale ID {loc_id}")
+                    success = False
+
+    # ========================================
+    # 2. SCREENSHOTS
+    # ========================================
+    else:
+        if not changes:
+            st.warning("No screenshot changes to upload.")
+            return False
+
+        with st.spinner("Uploading screenshots..."):
+            if not patch_screenshots(app_id, store_id, changes, issuer_id, key_id, private_key):
+                success = False
+
+    # ========================================
+    # 3. AFTER PATCH: Sync Latest + GitHub
+    # ========================================
+    if success:
+        with st.spinner("Syncing latest data from App Store..."):
+            sync_success = sync_attribute_data(
+                attribute, app_id, store_id,
+                issuer_id, key_id, private_key,
+                platform=platform
+            )
+            if not sync_success:
+                st.warning("Patched, but sync failed.")
+    else:
+        st.error("Patch failed for one or more items.")
+
+    # Push DB to GitHub
+    sync_db_to_github()
+    return success
+
 def get_attribute_data(attribute, app_id, store_id, platform=None):
     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
         table = 'app_info_localizations'
@@ -572,39 +638,6 @@ def translate_text(text, locale):
     except Exception as e:
         st.error(f"Translation failed: {str(e)}")
         return text
-
-# def translate_name_subtitle(text, locale):
-#     if not gemini_model or not text.strip():
-#         return text
-#     try:
-#         prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 30 characters."
-#         response = gemini_model.generate_content(prompt)
-#         return response.text.strip()
-#     except Exception as e:
-#         st.error(f"Translation failed: {str(e)}")
-#         return text
-    
-# def translate_promotional_text(text, locale):
-#     if not gemini_model or not text.strip():
-#         return text
-#     try:
-#         prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 170 characters."
-#         response = gemini_model.generate_content(prompt)
-#         return response.text.strip()
-#     except Exception as e:
-#         st.error(f"Translation failed: {str(e)}")
-#         return text
-    
-# def translate_keywords(text, locale):
-#     if not gemini_model or not text.strip():
-#         return text
-#     try:
-#         prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text under 100 characters."
-#         response = gemini_model.generate_content(prompt)
-#         return response.text.strip()
-#     except Exception as e:
-#         st.error(f"Translation failed: {str(e)}")
-#         return text
     
 # -------------------------------
 # Main Dashboard
@@ -959,7 +992,8 @@ def main():
     # Editing Area
     # -------------------------------
     col_left, col_right = st.columns([1, 3])
-
+    
+    # Left COL
     with col_left:
         # ========================================
         # 1. APP INFO ATTRIBUTES (No Platform)
@@ -1052,6 +1086,7 @@ def main():
                             sync_db_to_github()
                             st.rerun()
 
+    # Right COL
     with col_right:
         attr = st.session_state.get('selected_attribute')
         if attr and attr != 'screenshots':
@@ -1145,31 +1180,24 @@ def main():
                     st.button("Save Changes", disabled=True, key=f"{save_key}_disabled")
                 else:
                     if st.button("Save Changes", key=save_key):
-                        with st.spinner("Saving..."):
-                            success = True
-                            for loc_id, val in changes.items():
-                                func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
-                                if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
-                                    success = False
+                        with st.spinner("Saving changes..."):
+                            success = patch_attribute_data(
+                                attribute=attr,
+                                app_id=selected_app_id,
+                                store_id=selected_store_id,
+                                changes=changes,
+                                issuer_id=issuer_id,
+                                key_id=key_id,
+                                private_key=private_key,
+                                platform=st.session_state.get('platform')
+                            )
                             if success:
-                                st.success("Saved successfully!")
-
-                                # 1. Sync DB with App Store (pull latest)
-                                with st.spinner("Syncing latest data from App Store..."):
-                                    sync_attribute_data(
-                                        attr, selected_app_id, selected_store_id,
-                                        issuer_id, key_id, private_key, platform
-                                    )
-
-                                # 2. Push DB to GitHub
-                                with st.spinner("Pushing to GitHub..."):
-                                    sync_db_to_github()
-
-                                # 3. Clear auto-fill
+                                st.success("Saved & synced!")
+                                # Clear auto-translations
                                 for loc in locales:
-                                    auto_key = f"auto_{attr}_{loc}"
-                                    if auto_key in st.session_state:
-                                        del st.session_state[auto_key]
+                                    key = f"auto_{attr}_{loc}"
+                                    if key in st.session_state:
+                                        del st.session_state[key]
                             else:
                                 st.error("Save failed.")
                             st.rerun()
@@ -1212,18 +1240,23 @@ def main():
                                             }
                             st.markdown("---")
 
-                if st.button("Save All Screenshot Changes", key="save_screenshots"):
-                    if not changes:
-                        st.warning("No new URLs entered.")
-                    else:
-                        with st.spinner("Updating screenshots..."):
-                            success = patch_screenshots(selected_app_id, selected_store_id, changes, issuer_id, key_id, private_key)
-                            if success:
-                                st.success("Screenshots updated!")
-                                sync_db_to_github()
-                                st.rerun()
-                            else:
-                                st.error("Failed to update.")
+                if st.button("Save Changes", key="save_screenshots"):
+                    with st.spinner("Saving screenshots..."):
+                        success = patch_attribute_data(
+                            attribute='screenshots',
+                            app_id=selected_app_id,
+                            store_id=selected_store_id,
+                            changes=changes,  # same format as before
+                            issuer_id=issuer_id,
+                            key_id=key_id,
+                            private_key=private_key,
+                            platform=st.session_state.get('platform')
+                        )
+                        if success:
+                            st.success("Screenshots updated & synced!")
+                        else:
+                            st.error("Screenshot update failed.")
+                        st.rerun()
 
     st.markdown("---")
     st.markdown(
