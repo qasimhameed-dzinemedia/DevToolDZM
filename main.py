@@ -345,21 +345,30 @@ def patch_app_store_version_localization(localization_id, attributes, issuer_id,
 # -------------------------------
 # NEW: Fetch Screenshots (Reusable)
 # -------------------------------
-def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
+# -------------------------------
+# NEW: Fetch Screenshots (Exact Sync + Platform Filter)
+# -------------------------------
+def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform=None):
     """
-    Fetches ALL screenshots for an app (iOS/macOS) and saves to DB.
-    Uses Apple screenshot ID for uniqueness → NO OVERWRITE.
+    Fetches ALL screenshots for an app (iOS/macOS) and EXACTLY mirrors API to DB.
+    - Deletes old screenshots (for platform or all)
+    - Inserts only latest from API
+    - Shows API response in popup
     """
-    print(f"[Screenshots] Fetching ALL for app {app_id}...")
+    print(f"[Screenshots] Starting fetch for app {app_id}, platform: {platform}")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print("[Screenshots] JWT generation failed.")
+        st.error("JWT generation failed for screenshots.")
         return []
 
-    # Step 1: Get versions (only PREPARE_FOR_SUBMISSION)
-    versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
+    # Step 1: Get versions (filter by platform if needed)
+    versions_data = fetch_app_store_versions(
+        app_id, issuer_id, key_id, private_key,
+        platform=platform,
+        fields=['platform', 'appStoreVersionLocalizations']
+    )
     if not versions_data or 'data' not in versions_data:
-        print("[Screenshots] No versions found.")
+        st.warning(f"No {platform or 'any'} version found in PREPARE_FOR_SUBMISSION.")
         return []
 
     all_screenshots = []
@@ -392,11 +401,9 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
 
                 try:
                     url = template.format(w=width, h=height, f='jpg')
-                except (KeyError, ValueError) as e:
-                    print(f"[Screenshots] URL format error: {e}")
+                except (KeyError, ValueError):
                     continue
 
-                # UNIQUE ID using Apple's screenshot ID
                 apple_shot_id = shot['id']
                 shot_id = f"{app_id}_{apple_shot_id}"
 
@@ -412,8 +419,6 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
                     'height': height,
                     'platform': platform
                 })
-                print(f"[Screenshots] Found: {platform} | {locale} | {disp} | {width}x{height}")
-
         return locale_shots
 
     # Parallel fetch
@@ -421,11 +426,16 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
         futures = []
         for version in versions_data['data']:
             version_id = version['id']
-            platform = version['attributes'].get('platform', 'UNKNOWN')
-            locs_data = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
+            platform_name = version['attributes'].get('platform', 'UNKNOWN')
+            if platform and platform_name != platform:
+                continue
+            locs_data = fetch_app_store_version_localizations(
+                version_id, issuer_id, key_id, private_key,
+                fields=['locale', 'appScreenshotSets']
+            )
             if locs_data and 'data' in locs_data:
                 for loc in locs_data['data']:
-                    futures.append(executor.submit(process_localization, loc, platform, token))
+                    futures.append(executor.submit(process_localization, loc, platform_name, token))
 
         for future in futures:
             try:
@@ -433,46 +443,57 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key):
             except Exception as e:
                 print(f"[Screenshots] Thread error: {e}")
 
-    # SAVE TO DB (with UNIQUE IDs)
-    if all_screenshots:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS app_screenshots (
-                    id TEXT PRIMARY KEY,
-                    app_id TEXT,
-                    store_id INTEGER,
-                    localization_id TEXT,
-                    locale TEXT,
-                    display_type TEXT,
-                    url TEXT,
-                    width INTEGER,
-                    height INTEGER,
-                    platform TEXT
-                )
-            """)
+    # --- EXACT DB SYNC: DELETE OLD + INSERT NEW ---
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_screenshots (
+                id TEXT PRIMARY KEY,
+                app_id TEXT,
+                store_id INTEGER,
+                localization_id TEXT,
+                locale TEXT,
+                display_type TEXT,
+                url TEXT,
+                width INTEGER,
+                height INTEGER,
+                platform TEXT
+            )
+        """)
 
-            for shot in all_screenshots:
-                cursor.execute("""
-                    INSERT OR REPLACE INTO app_screenshots 
-                    (id, app_id, store_id, localization_id, locale, display_type, url, width, height, platform)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    shot['id'],
-                    shot['app_id'],
-                    shot['store_id'],
-                    shot['localization_id'],
-                    shot['locale'],
-                    shot['display_type'],
-                    shot['url'],
-                    shot['width'],
-                    shot['height'],
-                    shot['platform']
-                ))
-            conn.commit()
-        print(f"[Screenshots] Saved {len(all_screenshots)} screenshots to DB.")
+        # DELETE old data (platform-specific or all)
+        if platform:
+            cursor.execute(
+                "DELETE FROM app_screenshots WHERE app_id = ? AND store_id = ? AND platform = ?",
+                (app_id, store_id, platform)
+            )
+        else:
+            cursor.execute(
+                "DELETE FROM app_screenshots WHERE app_id = ? AND store_id = ?",
+                (app_id, store_id)
+            )
+
+        # INSERT only new
+        for shot in all_screenshots:
+            cursor.execute("""
+                INSERT INTO app_screenshots 
+                (id, app_id, store_id, localization_id, locale, display_type, url, width, height, platform)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                shot['id'], shot['app_id'], shot['store_id'], shot['localization_id'],
+                shot['locale'], shot['display_type'], shot['url'], shot['width'], shot['height'], shot['platform']
+            ))
+        conn.commit()
+
+    # --- UI FEEDBACK ---
+    count = len(all_screenshots)
+    if count > 0:
+        st.success(f"Fetched {count} screenshot{'' if count == 1 else 's'} ({platform or 'all platforms'})")
     else:
-        print("[Screenshots] No screenshots found.")
+        st.info(f"No screenshots found for {platform or 'any platform'}.")
+
+    with st.expander(f"API Response: Screenshots ({platform or 'all'})", expanded=False):
+        st.json(all_screenshots, expanded=False)
 
     sync_db_to_github()
     return all_screenshots
