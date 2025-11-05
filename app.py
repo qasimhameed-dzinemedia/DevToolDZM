@@ -535,55 +535,25 @@ def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_
     return success
 
 # -------------------------------
-# UNIVERSAL: Patch Attribute Data (Text + Screenshots)
+# NEW: Patch Attribute Data (Local to app.py)
 # -------------------------------
 def patch_attribute_data(attribute, app_id, store_id, changes, issuer_id, key_id, private_key, platform=None):
-    """
-    Patches ANY attribute: text fields OR screenshots.
-    
-    Parameters
-    ----------
-    attribute : str
-        'name', 'description', 'screenshots', etc.
-    changes : dict
-        For text: {localization_id: "new text"}
-        For screenshots: {shot_key: {"localization_id": ..., "display_type": ..., "new_url": ...}}
-    """
-    print(f"[PATCH] Starting patch for: {attribute} | App: {app_id} | Platform: {platform}")
+    print(f"[PATCH] Patching attribute: {attribute} | App: {app_id} | Platform: {platform}")
+
+    # Choose correct patch function
+    if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
+        patch_func = patch_app_info_localization
+    else:
+        patch_func = patch_app_store_version_localization
 
     success = True
-
-    # ========================================
-    # 1. TEXT ATTRIBUTES (name, description, etc.)
-    # ========================================
-    if attribute != 'screenshots':
-        patch_func = (
-            patch_app_info_localization 
-            if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url'] 
-            else patch_app_store_version_localization
-        )
-
-        for loc_id, value in changes.items():
-            if value is not None:
-                if not patch_func(loc_id, {attribute: value}, issuer_id, key_id, private_key):
-                    st.error(f"Failed: {attribute} → Locale ID {loc_id}")
-                    success = False
-
-    # ========================================
-    # 2. SCREENSHOTS
-    # ========================================
-    else:
-        if not changes:
-            st.warning("No screenshot changes to upload.")
-            return False
-
-        with st.spinner("Uploading screenshots..."):
-            if not patch_screenshots(app_id, store_id, changes, issuer_id, key_id, private_key):
+    for loc_id, value in changes.items():
+        if value is not None:
+            if not patch_func(loc_id, {attribute: value}, issuer_id, key_id, private_key):
+                st.error(f"Failed to update {attribute} for locale ID: {loc_id}")
                 success = False
 
-    # ========================================
-    # 3. AFTER PATCH: Sync Latest + GitHub
-    # ========================================
+    # After patch: Sync latest from App Store
     if success:
         with st.spinner("Syncing latest data from App Store..."):
             sync_success = sync_attribute_data(
@@ -594,7 +564,7 @@ def patch_attribute_data(attribute, app_id, store_id, changes, issuer_id, key_id
             if not sync_success:
                 st.warning("Patched, but sync failed.")
     else:
-        st.error("Patch failed for one or more items.")
+        st.error("Some updates failed.")
 
     # Push DB to GitHub
     sync_db_to_github()
@@ -834,7 +804,7 @@ def main():
     issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
 
     if st.sidebar.button("🔄 Fetch Data for Store"):
-        with st.spinner("Fetching..."):
+        with st.spinner(f"Fetching {selected_store_name}"):
             success = fetch_and_store_apps(selected_store_id, issuer_id, key_id, private_key)
             if success:
                 st.success("Data fetched!")
@@ -1246,22 +1216,17 @@ def main():
                             st.markdown("---")
 
                 if st.button("Save Changes", key="save_screenshots"):
-                    with st.spinner("Saving screenshots..."):
-                        success = patch_attribute_data(
-                            attribute='screenshots',
-                            app_id=selected_app_id,
-                            store_id=selected_store_id,
-                            changes=changes,  # same format as before
-                            issuer_id=issuer_id,
-                            key_id=key_id,
-                            private_key=private_key,
-                            platform=st.session_state.get('platform')
-                        )
-                        if success:
-                            st.success("Screenshots updated & synced!")
-                        else:
-                            st.error("Screenshot update failed.")
-                        st.rerun()
+                    if not changes:
+                        st.warning("No new URLs entered.")
+                    else:
+                        with st.spinner("Updating screenshots..."):
+                            success = patch_screenshots(selected_app_id, selected_store_id, changes, issuer_id, key_id, private_key)
+                            if success:
+                                st.success("Screenshots updated!")
+                                sync_db_to_github()
+                                st.rerun()
+                            else:
+                                st.error("Failed to update.")
 
     st.markdown("---")
     st.markdown(
