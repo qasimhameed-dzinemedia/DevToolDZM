@@ -1150,7 +1150,7 @@ def main():
                     st.button("Save Changes", disabled=True, key=f"{save_key}_disabled")
                 else:
                     if st.button("Save Changes", key=save_key):
-                        with st.spinner("Saving changes..."):
+                        with st.spinner(f"Saving changes {attr} for {platform}"):
                             success = patch_attribute_data(
                                 attribute=attr,
                                 app_id=selected_app_id,
