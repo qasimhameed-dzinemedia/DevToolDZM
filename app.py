@@ -1011,8 +1011,6 @@ def main():
                 platform = st.session_state.get('platform')
                 if not platform:
                     st.button("Sync", disabled=True, key=f"sync_version_{attr}_disabled")
-                    with st.expander("Select platform first", expanded=False):
-                        st.caption("Go to Screenshots section and choose iOS/macOS.")
                 else:
                     platform_name = "iOS" if platform == "IOS" else "macOS"
                     if st.button(f"Sync", key=f"sync_version_{attr}"):
@@ -1039,8 +1037,6 @@ def main():
             platform = st.session_state.get('platform')
             if not platform:
                 st.button("Sync", disabled=True, key="sync_screenshots_disabled")
-                with st.expander("Select platform", expanded=False):
-                    st.caption("Choose iOS or macOS in the section below.")
             else:
                 platform_name = "iOS" if platform == "IOS" else "macOS"
                 if st.button(f"Sync", key="sync_screenshots"):
