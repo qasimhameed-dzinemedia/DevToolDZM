@@ -994,14 +994,27 @@ def main():
                 st.session_state['selected_attribute'] = 'screenshots'
         with col_sync:
             if st.button("Sync", key="sync_screenshots"):
-                with st.spinner("Syncing..."):
-                    success = sync_attribute_data('screenshots', selected_app_id, selected_store_id, issuer_id, key_id, private_key)
+                # Get platform from session_state (set in screenshots section)
+                platform = st.session_state.get('platform', None)
+                
+                if not platform:
+                    st.error("Please select a platform in the screenshots section first.")
+                else:
+                    platform_name = "iOS" if platform == "IOS" else "macOS"
+                    with st.spinner(f"Syncing screenshots for {platform_name}..."):
+                        success = sync_attribute_data(
+                            'screenshots',
+                            selected_app_id,
+                            selected_store_id,
+                            issuer_id, key_id, private_key,
+                            platform=platform  # ← Use selected platform
+                        )
                     if success:
-                        st.success("Screenshots synced!")
+                        st.success(f"Screenshots synced for {platform_name}!")
                         sync_db_to_github()
+                        st.rerun()
                     else:
                         st.error("Sync failed.")
-                    st.rerun()
 
     with col_right:
         attr = st.session_state.get('selected_attribute')
