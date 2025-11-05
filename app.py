@@ -976,7 +976,7 @@ def main():
             'promotional_text': '🎉',
             'support_url': '🛠️',
             'whats_new': '✨'
-        }.get(attr, '')
+        }
         for attr in attributes:
             col_btn, col_sync = st.columns([3, 1])
             with col_btn:
