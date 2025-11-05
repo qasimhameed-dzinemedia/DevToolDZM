@@ -544,28 +544,6 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
 # NEW: Patch Screenshots (Reusable)
 # -------------------------------
 def patch_screenshots(app_id, store_id, changes, issuer_id, key_id, private_key):
-    """
-    Upload new screenshot images.
-
-    Parameters
-    ----------
-    app_id        : str   – Apple App ID
-    store_id      : int   – internal store identifier
-    changes       : dict
-        {
-            "shot_key": {
-                "localization_id": "...",
-                "display_type": "...",
-                "new_url": "https://example.com/image.jpg"
-            },
-            ...
-        }
-    issuer_id, key_id, private_key – App Store Connect credentials
-
-    Returns
-    -------
-    bool – True if **all** screenshots were uploaded successfully
-    """
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
         st.error("Could not generate JWT for screenshot upload.")
