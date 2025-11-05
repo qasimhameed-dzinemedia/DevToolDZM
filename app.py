@@ -92,7 +92,7 @@ locale_names = {
 # -------------------------------
 # Gemini AI Setup
 # -------------------------------
-GEMINI_API_KEY = "AIzaSyAIB-Br-ZJtMBs5f8beL_JUpDAKW4ygYYk"
+GEMINI_API_KEY = "AIzaSyCoIwS0zRQ0CTl4WY8et_QDTOUrIIuB3iA"
 gemini_model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -1096,7 +1096,7 @@ def main():
                             with st.spinner("Translating..."):
                                 for loc in locales:
                                     translated = translate_text(source_text, loc)
-                                    time.sleep(0.5)
+                                    time.sleep(4)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
