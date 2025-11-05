@@ -1096,7 +1096,7 @@ def main():
                             with st.spinner("Translating..."):
                                 for loc in locales:
                                     translated = translate_text(source_text, loc)
-                                    time.sleep(0.5)
+                                    time.sleep(4)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
