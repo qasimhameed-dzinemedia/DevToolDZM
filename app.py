@@ -509,7 +509,7 @@ def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_
                 version_platform = version["attributes"].get("platform", "UNKNOWN")
                 if platform and version_platform != platform:
                     continue
-                version_localizations = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key, platform=platform)
+                version_localizations = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
                 if version_localizations and "data" in version_localizations:
                     for loc in version_localizations["data"]:
                         cursor.execute(
