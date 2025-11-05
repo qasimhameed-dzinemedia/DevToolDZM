@@ -537,38 +537,38 @@ def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_
 # -------------------------------
 # NEW: Patch Attribute Data (Local to app.py)
 # -------------------------------
-def patch_attribute_data(attribute, app_id, store_id, changes, issuer_id, key_id, private_key, platform=None):
-    print(f"[PATCH] Patching attribute: {attribute} | App: {app_id} | Platform: {platform}")
+# def patch_attribute_data(attribute, app_id, store_id, changes, issuer_id, key_id, private_key, platform=None):
+#     print(f"[PATCH] Patching attribute: {attribute} | App: {app_id} | Platform: {platform}")
 
-    # Choose correct patch function
-    if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
-        patch_func = patch_app_info_localization
-    else:
-        patch_func = patch_app_store_version_localization
+#     # Choose correct patch function
+#     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
+#         patch_func = patch_app_info_localization
+#     else:
+#         patch_func = patch_app_store_version_localization
 
-    success = True
-    for loc_id, value in changes.items():
-        if value is not None:
-            if not patch_func(loc_id, {attribute: value}, issuer_id, key_id, private_key):
-                st.error(f"Failed to update {attribute} for locale ID: {loc_id}")
-                success = False
+#     success = True
+#     for loc_id, value in changes.items():
+#         if value is not None:
+#             if not patch_func(loc_id, {attribute: value}, issuer_id, key_id, private_key):
+#                 st.error(f"Failed to update {attribute} for locale ID: {loc_id}")
+#                 success = False
 
-    # After patch: Sync latest from App Store
-    if success:
-        with st.spinner(f"Syncing latest data from App Store for {attribute} of {app_id}"):
-            sync_success = sync_attribute_data(
-                attribute, app_id, store_id,
-                issuer_id, key_id, private_key,
-                platform=platform
-            )
-            if not sync_success:
-                st.warning("Patched, but sync failed.")
-    else:
-        st.error("Some updates failed.")
+#     # After patch: Sync latest from App Store
+#     if success:
+#         with st.spinner(f"Syncing latest data from App Store for {attribute} of {app_id}"):
+#             sync_success = sync_attribute_data(
+#                 attribute, app_id, store_id,
+#                 issuer_id, key_id, private_key,
+#                 platform=platform
+#             )
+#             if not sync_success:
+#                 st.warning("Patched, but sync failed.")
+#     else:
+#         st.error("Some updates failed.")
 
-    # Push DB to GitHub
-    sync_db_to_github()
-    return success
+#     # Push DB to GitHub
+#     sync_db_to_github()
+#     return success
 
 def get_attribute_data(attribute, app_id, store_id, platform=None):
     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
@@ -1150,24 +1150,31 @@ def main():
                     st.button("Save Changes", disabled=True, key=f"{save_key}_disabled")
                 else:
                     if st.button("Save Changes", key=save_key):
-                        with st.spinner(f"Saving changes {attr} for {platform}"):
-                            success = patch_attribute_data(
-                                attribute=attr,
-                                app_id=selected_app_id,
-                                store_id=selected_store_id,
-                                changes=changes,
-                                issuer_id=issuer_id,
-                                key_id=key_id,
-                                private_key=private_key,
-                                platform=st.session_state.get('platform')
-                            )
+                        with st.spinner("Saving..."):
+                            success = True
+                            for loc_id, val in changes.items():
+                                func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
+                                if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
+                                    success = False
                             if success:
-                                st.success("Saved & synced!")
-                                # Clear auto-translations
+                                st.success("Saved successfully!")
+
+                                # 1. Sync DB with App Store (pull latest)
+                                with st.spinner("Syncing latest data from App Store..."):
+                                    sync_attribute_data(
+                                        attr, selected_app_id, selected_store_id,
+                                        issuer_id, key_id, private_key, platform
+                                    )
+
+                                # 2. Push DB to GitHub
+                                with st.spinner("Pushing to GitHub..."):
+                                    sync_db_to_github()
+
+                                # 3. Clear auto-fill
                                 for loc in locales:
-                                    key = f"auto_{attr}_{loc}"
-                                    if key in st.session_state:
-                                        del st.session_state[key]
+                                    auto_key = f"auto_{attr}_{loc}"
+                                    if auto_key in st.session_state:
+                                        del st.session_state[auto_key]
                             else:
                                 st.error("Save failed.")
                             st.rerun()
