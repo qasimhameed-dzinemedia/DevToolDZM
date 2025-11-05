@@ -468,7 +468,13 @@ def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_
     success = True
 
     if attribute == 'screenshots':
-        return bool(fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key))
+        with st.spinner("Fetching screenshots..."):
+            api_data = fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform=platform)
+        if api_data:
+            st.success(f"Fetched {len(api_data)} screenshots ({platform or 'all'})")
+        else:
+            st.error("No screenshots found")
+            success = False
     
     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
         app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
