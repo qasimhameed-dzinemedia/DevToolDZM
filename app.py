@@ -502,14 +502,14 @@ def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_
         else:
             success = False
     else:
-        versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
+        versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key, platform=platform)
         if versions_data and "data" in versions_data:
             for version in versions_data["data"]:
                 version_id = version["id"]
                 version_platform = version["attributes"].get("platform", "UNKNOWN")
                 if platform and version_platform != platform:
                     continue
-                version_localizations = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
+                version_localizations = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key, platform=platform)
                 if version_localizations and "data" in version_localizations:
                     for loc in version_localizations["data"]:
                         cursor.execute(
@@ -965,34 +965,48 @@ def main():
             'name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url',
             'description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new'
         ]
+        emoji = {
+            'name': '📛',
+            'subtitle': '📝',
+            'privacy_policy_url': '🔒',
+            'privacy_choices_url': '⚙️',
+            'description': '📖',
+            'keywords': '🔍',
+            'marketing_url': '📣',
+            'promotional_text': '🎉',
+            'support_url': '🛠️',
+            'whats_new': '✨'
+        }.get(attr, '')
         for attr in attributes:
-            emoji = {
-                'name': '📛',
-                'subtitle': '📝',
-                'privacy_policy_url': '🔒',
-                'privacy_choices_url': '⚙️',
-                'description': '📖',
-                'keywords': '🔍',
-                'marketing_url': '📣',
-                'promotional_text': '🎉',
-                'support_url': '🛠️',
-                'whats_new': '✨'
-            }.get(attr, '')
             col_btn, col_sync = st.columns([3, 1])
             with col_btn:
-                if st.button(f"{emoji} {attr.capitalize()}", key=f"attr_{attr}"):
+                if st.button(f"{emoji.get(attr, '')} {attr.replace('_', ' ').title()}", key=f"attr_{attr}"):
                     st.session_state['selected_attribute'] = attr
+
             with col_sync:
-                if st.button("Sync", key=f"sync_{attr}"):
-                    with st.spinner("Syncing..."):
-                        platform = st.session_state.get('platform')
-                        success = sync_attribute_data(attr, selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform)
+                # Determine if platform is needed
+                platform_based = attr in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']
+                platform = st.session_state.get('platform') if platform_based else None
+
+                # Dynamic button label
+                sync_label = "Sync"
+                if platform_based and platform:
+                    platform_name = "iOS" if platform == "IOS" else "macOS"
+                    sync_label = f"Sync {platform_name}"
+
+                if st.button(sync_label, key=f"sync_{attr}"):
+                    with st.spinner(f"Syncing {attr.replace('_', ' ')}..."):
+                        success = sync_attribute_data(
+                            attr, selected_app_id, selected_store_id,
+                            issuer_id, key_id, private_key,
+                            platform=platform  # Only passed for platform-based attrs
+                        )
                         if success:
-                            st.success("Synced!")
+                            st.success(f"{attr.replace('_', ' ').title()} synced!")
                             sync_db_to_github()
+                            st.rerun()
                         else:
                             st.error("Sync failed.")
-                        st.rerun()
 
         col_btn, col_sync = st.columns([3, 1])
         with col_btn:
