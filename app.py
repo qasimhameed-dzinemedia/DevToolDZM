@@ -1206,13 +1206,15 @@ def main():
             platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select")
             st.session_state['platform'] = platform
             st.markdown("---")
+            
             df = load_screenshots(selected_app_id, selected_store_id, platform)
             if df.empty:
                 st.warning(f"No screenshots found for {platform}.")
             else:
-                st.markdown(f"#### Editing Screenshots for {platform}")
+                st.markdown(f"#### Editing Screenshots for {'iOS' if platform == 'IOS' else 'macOS'}")
                 st.markdown("---")
                 changes = {}
+
                 for locale, loc_group in df.groupby('locale'):
                     full_name = locale_names.get(locale.upper(), locale.upper())
                     with st.expander(f"{locale.upper()} – {full_name}", expanded=True):
@@ -1220,25 +1222,27 @@ def main():
                             clean_name = disp_type.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').title()
                             count = len(disp_group)
                             st.markdown(f"**{clean_name}** ({count} screenshot{'' if count == 1 else 's'})")
+                            
+                            # === NEW LAYOUT: 4 columns, vertical stack ===
                             screenshots = list(disp_group.itertuples())
-                            n = len(screenshots)
-                            cols_per_row = min(n, 4)
-                            rows_needed = (n + cols_per_row - 1) // cols_per_row
-                            for row_idx in range(rows_needed):
-                                start = row_idx * cols_per_row
-                                end = min(start + cols_per_row, n)
-                                current_batch = screenshots[start:end]
-                                cols = st.columns(len(current_batch))
-                                for idx, row in enumerate(current_batch):
-                                    with cols[idx]:
-                                        st.image(row.url, use_column_width=True, caption=f"{row.width}×{row.height}")
-                                        new_url = st.text_input("Replace URL", value="", key=f"shot_{row.localization_id}_{disp_type}_{row.Index}", placeholder="Paste new image URL", label_visibility="collapsed")
-                                        if new_url.strip():
-                                            changes[f"{row.localization_id}_{disp_type}_{row.Index}"] = {
-                                                'localization_id': row.localization_id,
-                                                'display_type': disp_type,
-                                                'new_url': new_url.strip()
-                                            }
+                            if not screenshots:
+                                continue
+                            cols = st.columns(4)
+                            for idx, row in enumerate(screenshots):
+                                with cols[idx % 4]:
+                                    st.image(row.url, use_column_width=True, caption=f"{row.width}×{row.height}")
+                                    new_url = st.text_input(
+                                        "Replace URL", value="",
+                                        key=f"shot_{row.localization_id}_{disp_type}_{row.Index}",
+                                        placeholder="Paste new image URL",
+                                        label_visibility="collapsed"
+                                    )
+                                    if new_url.strip():
+                                        changes[f"{row.localization_id}_{disp_type}_{row.Index}"] = {
+                                            'localization_id': row.localization_id,
+                                            'display_type': disp_type,
+                                            'new_url': new_url.strip()
+                                        }
                             st.markdown("---")
 
                 if st.button("Save Changes", key="save_screenshots"):
