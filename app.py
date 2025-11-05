@@ -964,9 +964,11 @@ def main():
         # ========================================
         # 1. APP INFO ATTRIBUTES (No Platform)
         # ========================================
-        st.markdown("### App Info")
         app_info_attrs = ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']
-        emoji_info = {'name': 'Name', 'subtitle': 'Subtitle', 'privacy_policy_url': 'Privacy Policy', 'privacy_choices_url': 'Privacy Choices'}
+        emoji_info = {'name': '📛',
+                'subtitle': '📝',
+                'privacy_policy_url': '🔒',
+                'privacy_choices_url': '⚙️'}
 
         for attr in app_info_attrs:
             col_btn, col_sync = st.columns([3, 1])
@@ -978,23 +980,25 @@ def main():
                     with st.spinner(f"Syncing {attr.replace('_', ' ')}..."):
                         success = sync_attribute_data(
                             attr, selected_app_id, selected_store_id,
-                            issuer_id, key_id, private_key
+                            issuer_id, key_id, private_key,
+                            platform=None  # No platform
                         )
                         if success:
                             st.success(f"{attr.replace('_', ' ').title()} synced!")
                             sync_db_to_github()
                             st.rerun()
 
-        st.markdown("---")
-
         # ========================================
         # 2. APP VERSION ATTRIBUTES (Platform-Based)
         # ========================================
-        st.markdown("### Version Info")
         version_attrs = ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']
         emoji_version = {
-            'description': 'Description', 'keywords': 'Keywords', 'marketing_url': 'Marketing URL',
-            'promotional_text': 'Promotional Text', 'support_url': 'Support URL', 'whats_new': 'What\'s New'
+                'description': '📖',
+                'keywords': '🔍',
+                'marketing_url': '📣',
+                'promotional_text': '🎉',
+                'support_url': '🛠️',
+                'whats_new': '✨'
         }
 
         for attr in version_attrs:
@@ -1011,7 +1015,7 @@ def main():
                         st.caption("Go to Screenshots section and choose iOS/macOS.")
                 else:
                     platform_name = "iOS" if platform == "IOS" else "macOS"
-                    if st.button(f"Sync {platform_name}", key=f"sync_version_{attr}"):
+                    if st.button(f"Sync", key=f"sync_version_{attr}"):
                         with st.spinner(f"Syncing {attr.replace('_', ' ')} for {platform_name}..."):
                             success = sync_attribute_data(
                                 attr, selected_app_id, selected_store_id,
@@ -1023,15 +1027,12 @@ def main():
                                 sync_db_to_github()
                                 st.rerun()
 
-        st.markdown("---")
-
         # ========================================
         # 3. SCREENSHOTS (Platform-Based)
         # ========================================
-        st.markdown("### Screenshots")
         col_btn, col_sync = st.columns([3, 1])
         with col_btn:
-            if st.button("Screenshots", key="attr_screenshots"):
+            if st.button("🖼️ Screenshots", key="attr_screenshots"):
                 st.session_state['selected_attribute'] = 'screenshots'
 
         with col_sync:
@@ -1042,7 +1043,7 @@ def main():
                     st.caption("Choose iOS or macOS in the section below.")
             else:
                 platform_name = "iOS" if platform == "IOS" else "macOS"
-                if st.button(f"Sync {platform_name}", key="sync_screenshots"):
+                if st.button(f"Sync", key="sync_screenshots"):
                     with st.spinner(f"Syncing screenshots for {platform_name}..."):
                         success = sync_attribute_data(
                             'screenshots',
