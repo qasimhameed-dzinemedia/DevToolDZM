@@ -538,35 +538,89 @@ def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_
 # NEW: Patch Attribute Data (Local to app.py)
 # -------------------------------
 def patch_attribute_data(attribute, app_id, store_id, changes, issuer_id, key_id, private_key, platform=None):
-    print(f"[PATCH] Patching attribute: {attribute} | App: {app_id} | Platform: {platform}")
+    print(f"[PATCH] Starting patch for: {attribute} | App: {app_id} | Platform: {platform}")
 
-    # Choose correct patch function
+    # Step 1: Re-fetch latest localization IDs
+    locale_to_loc_id = {}  # {locale: current_localization_id}
+
     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
-        patch_func = patch_app_info_localization
-    else:
-        patch_func = patch_app_store_version_localization
+        # App Info – No platform
+        app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
+        if not app_info_data or "data" not in app_info_data:
+            st.error("Failed to fetch app info.")
+            return False
+        app_info_index = 1 if len(app_info_data["data"]) > 1 else 0
+        app_info_id = app_info_data["data"][app_info_index]["id"]
+        locs = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
+        if locs and "data" in locs:
+            for loc in locs["data"]:
+                locale_to_loc_id[loc["attributes"]["locale"]] = loc["id"]
 
+    else:
+        # Version-based: description, whats_new, screenshots, etc.
+        versions = fetch_app_store_versions(app_id, issuer_id, key_id, private_key, platform=platform)
+        if not versions or "data" not in versions:
+            st.error(f"No {platform} version in PREPARE_FOR_SUBMISSION.")
+            return False
+
+        for version in versions["data"]:
+            version_id = version["id"]
+            locs_data = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
+            if locs_data and "data" in locs_data:
+                for loc in locs_data["data"]:
+                    locale = loc["attributes"]["locale"]
+                    locale_to_loc_id[locale] = loc["id"]
+
+    # Step 2: Map old DB localization_id → new API localization_id
+    updated_changes = {}
+    for old_loc_id, value in changes.items():
+        # Find locale from DB
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
+            cursor.execute(
+                "SELECT locale FROM app_info_localizations WHERE localization_id = ? AND app_id = ?",
+                (old_loc_id, app_id)
+            )
+        else:
+            cursor.execute(
+                "SELECT locale FROM app_version_localizations WHERE localization_id = ? AND app_id = ? AND platform = ?",
+                (old_loc_id, app_id, platform)
+            )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            st.warning(f"Locale not found for localization_id {old_loc_id}. Skipping.")
+            continue
+        locale = row[0]
+        new_loc_id = locale_to_loc_id.get(locale)
+        if not new_loc_id:
+            st.warning(f"Locale {locale} not found in current API data. Skipping.")
+            continue
+        updated_changes[new_loc_id] = value
+
+    if not updated_changes:
+        st.error("No valid localizations to update.")
+        return False
+
+    # Step 3: Patch with fresh IDs
     success = True
-    for loc_id, value in changes.items():
+    patch_func = (
+        patch_app_info_localization
+        if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']
+        else patch_app_store_version_localization
+    )
+
+    for loc_id, value in updated_changes.items():
         if value is not None:
             if not patch_func(loc_id, {attribute: value}, issuer_id, key_id, private_key):
-                st.error(f"Failed to update {attribute} for locale ID: {loc_id}")
+                st.error(f"Failed to patch {attribute} for locale ID {loc_id}")
                 success = False
 
-    # After patch: Sync latest from App Store
+    # Step 4: Sync + GitHub
     if success:
-        with st.spinner("Syncing latest data from App Store..."):
-            sync_success = sync_attribute_data(
-                attribute, app_id, store_id,
-                issuer_id, key_id, private_key,
-                platform=platform
-            )
-            if not sync_success:
-                st.warning("Patched, but sync failed.")
-    else:
-        st.error("Some updates failed.")
-
-    # Push DB to GitHub
+        with st.spinner("Syncing latest from App Store..."):
+            sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_key, platform)
     sync_db_to_github()
     return success
 
