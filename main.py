@@ -246,16 +246,29 @@ def fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key):
 # -------------------------------
 # Fetch App Store Versions with Filter
 # -------------------------------
-def fetch_app_store_versions(app_id, issuer_id, key_id, private_key):
-    print(f"Fetching app store versions for app ID {app_id} with PREPARE_FOR_SUBMISSION...")
+def fetch_app_store_versions(app_id, issuer_id, key_id, private_key, platform=None, fields=None):
+    print(f"Fetching app store versions for app ID {app_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print(f"Failed to generate JWT for app store versions of app ID {app_id}.")
+        print("JWT generation failed.")
         return None
-    url = f"{BASE_URL}/apps/{app_id}/appStoreVersions?filter[appStoreState]=PREPARE_FOR_SUBMISSION"
-    data = get(url, token)
+
+    params = {
+        "filter[appStoreState]": "PREPARE_FOR_SUBMISSION"
+    }
+    if platform:
+        params["filter[platform]"] = platform
+    if fields:
+        params["fields[appStoreVersions]"] = ",".join(fields)
+
+    url = f"{BASE_URL}/apps/{app_id}/appStoreVersions"
+    query_string = "&".join(f"{k}={v}" for k, v in params.items())
+    full_url = f"{url}?{query_string}"
+
+    print(f"GET: {full_url}")
+    data = get(full_url, token)
     if data:
-        print(f"Fetched {len(data.get('data', []))} app store versions for app ID {app_id}.")
+        print(f"Fetched {len(data.get('data', []))} versions.")
     sync_db_to_github()
     return data
 
