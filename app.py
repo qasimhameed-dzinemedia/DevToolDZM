@@ -961,80 +961,99 @@ def main():
     col_left, col_right = st.columns([1, 3])
 
     with col_left:
-        attributes = [
-            'name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url',
-            'description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new'
-        ]
-        emoji = {
-            'name': '📛',
-            'subtitle': '📝',
-            'privacy_policy_url': '🔒',
-            'privacy_choices_url': '⚙️',
-            'description': '📖',
-            'keywords': '🔍',
-            'marketing_url': '📣',
-            'promotional_text': '🎉',
-            'support_url': '🛠️',
-            'whats_new': '✨'
-        }
-        for attr in attributes:
+        # ========================================
+        # 1. APP INFO ATTRIBUTES (No Platform)
+        # ========================================
+        st.markdown("### App Info")
+        app_info_attrs = ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']
+        emoji_info = {'name': 'Name', 'subtitle': 'Subtitle', 'privacy_policy_url': 'Privacy Policy', 'privacy_choices_url': 'Privacy Choices'}
+
+        for attr in app_info_attrs:
             col_btn, col_sync = st.columns([3, 1])
             with col_btn:
-                if st.button(f"{emoji.get(attr, '')} {attr.replace('_', ' ').title()}", key=f"attr_{attr}"):
+                if st.button(f"{emoji_info.get(attr, '')} {attr.replace('_', ' ').title()}", key=f"info_{attr}"):
                     st.session_state['selected_attribute'] = attr
-
             with col_sync:
-                # Determine if platform is needed
-                platform_based = attr in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']
-                platform = st.session_state.get('platform') if platform_based else None
-
-                # Dynamic button label
-                sync_label = "Sync"
-                if platform_based and platform:
-                    platform_name = "iOS" if platform == "IOS" else "macOS"
-                    sync_label = f"Sync {platform_name}"
-
-                if st.button(sync_label, key=f"sync_{attr}"):
+                if st.button("Sync", key=f"sync_info_{attr}"):
                     with st.spinner(f"Syncing {attr.replace('_', ' ')}..."):
                         success = sync_attribute_data(
                             attr, selected_app_id, selected_store_id,
-                            issuer_id, key_id, private_key,
-                            platform=platform  # Only passed for platform-based attrs
+                            issuer_id, key_id, private_key
                         )
                         if success:
                             st.success(f"{attr.replace('_', ' ').title()} synced!")
                             sync_db_to_github()
                             st.rerun()
-                        else:
-                            st.error("Sync failed.")
 
-        col_btn, col_sync = st.columns([3, 1])
-        with col_btn:
-            if st.button("🖼️ Screenshots", key="attr_screenshots"):
-                st.session_state['selected_attribute'] = 'screenshots'
-        with col_sync:
-            if st.button("Sync", key="sync_screenshots"):
-                # Get platform from session_state (set in screenshots section)
-                platform = st.session_state.get('platform', None)
-                
+        st.markdown("---")
+
+        # ========================================
+        # 2. APP VERSION ATTRIBUTES (Platform-Based)
+        # ========================================
+        st.markdown("### Version Info")
+        version_attrs = ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']
+        emoji_version = {
+            'description': 'Description', 'keywords': 'Keywords', 'marketing_url': 'Marketing URL',
+            'promotional_text': 'Promotional Text', 'support_url': 'Support URL', 'whats_new': 'What\'s New'
+        }
+
+        for attr in version_attrs:
+            col_btn, col_sync = st.columns([3, 1])
+            with col_btn:
+                if st.button(f"{emoji_version.get(attr, '')} {attr.replace('_', ' ').title()}", key=f"version_{attr}"):
+                    st.session_state['selected_attribute'] = attr
+
+            with col_sync:
+                platform = st.session_state.get('platform')
                 if not platform:
-                    st.error("Please select a platform in the screenshots section first.")
+                    st.button("Sync", disabled=True, key=f"sync_version_{attr}_disabled")
+                    with st.expander("Select platform first", expanded=False):
+                        st.caption("Go to Screenshots section and choose iOS/macOS.")
                 else:
                     platform_name = "iOS" if platform == "IOS" else "macOS"
+                    if st.button(f"Sync {platform_name}", key=f"sync_version_{attr}"):
+                        with st.spinner(f"Syncing {attr.replace('_', ' ')} for {platform_name}..."):
+                            success = sync_attribute_data(
+                                attr, selected_app_id, selected_store_id,
+                                issuer_id, key_id, private_key,
+                                platform=platform
+                            )
+                            if success:
+                                st.success(f"{attr.replace('_', ' ').title()} synced for {platform_name}!")
+                                sync_db_to_github()
+                                st.rerun()
+
+        st.markdown("---")
+
+        # ========================================
+        # 3. SCREENSHOTS (Platform-Based)
+        # ========================================
+        st.markdown("### Screenshots")
+        col_btn, col_sync = st.columns([3, 1])
+        with col_btn:
+            if st.button("Screenshots", key="attr_screenshots"):
+                st.session_state['selected_attribute'] = 'screenshots'
+
+        with col_sync:
+            platform = st.session_state.get('platform')
+            if not platform:
+                st.button("Sync", disabled=True, key="sync_screenshots_disabled")
+                with st.expander("Select platform", expanded=False):
+                    st.caption("Choose iOS or macOS in the section below.")
+            else:
+                platform_name = "iOS" if platform == "IOS" else "macOS"
+                if st.button(f"Sync {platform_name}", key="sync_screenshots"):
                     with st.spinner(f"Syncing screenshots for {platform_name}..."):
                         success = sync_attribute_data(
                             'screenshots',
-                            selected_app_id,
-                            selected_store_id,
+                            selected_app_id, selected_store_id,
                             issuer_id, key_id, private_key,
-                            platform=platform  # ← Use selected platform
+                            platform=platform
                         )
-                    if success:
-                        st.success(f"Screenshots synced for {platform_name}!")
-                        sync_db_to_github()
-                        st.rerun()
-                    else:
-                        st.error("Sync failed.")
+                        if success:
+                            st.success(f"Screenshots synced for {platform_name}!")
+                            sync_db_to_github()
+                            st.rerun()
 
     with col_right:
         attr = st.session_state.get('selected_attribute')
