@@ -214,32 +214,52 @@ def fetch_all_apps(issuer_id, key_id, private_key):
 # -------------------------------
 # Fetch App Info
 # -------------------------------
-def fetch_app_info(app_id, issuer_id, key_id, private_key):
+def fetch_app_info(app_id, issuer_id, key_id, private_key, fields=None):
     print(f"Fetching app info for app ID {app_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print(f"Failed to generate JWT for app info of app ID {app_id}.")
+        print("JWT generation failed.")
         return None
+
+    params = {}
+    if fields:
+        params["fields[appInfos]"] = ",".join(fields)
+
     url = f"{BASE_URL}/apps/{app_id}/appInfos"
+    if params:
+        url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
+
+    print(f"GET: {url}")
     data = get(url, token)
     if data:
-        print(f"Fetched app info for app ID {app_id}.")
+        count = len(data.get("data", []))
+        print(f"Fetched {count} app info record(s).")
     sync_db_to_github()
     return data
 
 # -------------------------------
 # Fetch App Info Localizations
 # -------------------------------
-def fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key):
+def fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key, fields=None):
     print(f"Fetching app info localizations for app info ID {app_info_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print(f"Failed to generate JWT for app info localizations of app info ID {app_info_id}.")
+        print("JWT generation failed.")
         return None
+
+    params = {}
+    if fields:
+        params["fields[appInfoLocalizations]"] = ",".join(fields)
+
     url = f"{BASE_URL}/appInfos/{app_info_id}/appInfoLocalizations"
+    if params:
+        url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
+
+    print(f"GET: {url}")
     data = get(url, token)
     if data:
-        print(f"Fetched {len(data.get('data', []))} app info localizations for app info ID {app_info_id}.")
+        count = len(data.get("data", []))
+        print(f"Fetched {count} app info localization(s).")
     sync_db_to_github()
     return data
 
@@ -275,16 +295,25 @@ def fetch_app_store_versions(app_id, issuer_id, key_id, private_key, platform=No
 # -------------------------------
 # Fetch App Store Version Localizations
 # -------------------------------
-def fetch_app_store_version_localizations(app_store_version_id, issuer_id, key_id, private_key):
-    print(f"Fetching version localizations for version ID {app_store_version_id}...")
+def fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key, fields=None):
+    print(f"Fetching version localizations for version ID {version_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        print(f"Failed to generate JWT for version localizations of version ID {app_store_version_id}.")
+        print("JWT generation failed.")
         return None
-    url = f"{BASE_URL}/appStoreVersions/{app_store_version_id}/appStoreVersionLocalizations"
+
+    params = {}
+    if fields:
+        params["fields[appStoreVersionLocalizations]"] = ",".join(fields)
+
+    url = f"{BASE_URL}/appStoreVersions/{version_id}/appStoreVersionLocalizations"
+    if params:
+        url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
+
+    print(f"GET: {url}")
     data = get(url, token)
     if data:
-        print(f"Fetched {len(data.get('data', []))} version localizations for version ID {app_store_version_id}.")
+        print(f"Fetched {len(data.get('data', []))} localizations.")
     sync_db_to_github()
     return data
 
