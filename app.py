@@ -884,7 +884,7 @@ def main():
         if st.button("Close"):
             del st.session_state["show_loc_table"]
             st.rerun()
-
+        st.markdown("---")
     # -------------------------------
     # Title + Refresh + Search
     # -------------------------------
