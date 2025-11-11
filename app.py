@@ -462,113 +462,112 @@ def update_db_attribute(table, localization_id, attribute, value, store_id):
     conn.commit()
     conn.close()
 
-def sync_attribute_data(attribute, app_id, store_id, issuer_id, key_id, private_key, platform=None):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+# -------------------------------
+# NEW: Sync Attribute Data (Delete old, fetch & insert latest from Apple)
+# -------------------------------
+def sync_attribute_data(attr, app_id, store_id, issuer_id, key_id, private_key, platform=None):
+    print(f"[SYNC ATTR] Syncing '{attr}' for app {app_id}, platform: {platform}")
     success = True
 
-    if attribute == 'screenshots':
-        with st.spinner("Fetching screenshots..."):
-            api_data = fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform=platform)
-        if api_data:
-            st.success(f"Fetched {len(api_data)} screenshots ({platform or 'all'})")
-        else:
-            st.error("No screenshots found")
-            success = False
-    
-    if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
+    if attr in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
+        # App Info Attributes (no platform)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM app_info_localizations WHERE app_id = ? AND store_id = ?", (app_id, store_id))
+            conn.commit()
+            print(f"[SYNC ATTR] Deleted old app_info_localizations for {app_id}")
+
         app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
         if app_info_data and "data" in app_info_data and app_info_data["data"]:
             app_info_index = 1 if len(app_info_data["data"]) > 1 else 0
             app_info_id = app_info_data["data"][app_info_index].get("id")
-            app_info_localizations = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
-            if app_info_localizations and "data" in app_info_localizations:
-                for loc in app_info_localizations["data"]:
-                    cursor.execute(
-                        """
-                        INSERT OR REPLACE INTO app_info_localizations 
-                        (localization_id, app_id, store_id, locale, name, subtitle, privacy_policy_url, privacy_choices_url) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            loc["id"], app_id, store_id, loc["attributes"].get("locale"),
-                            loc["attributes"].get("name"), loc["attributes"].get("subtitle"),
-                            loc["attributes"].get("privacyPolicyUrl"), loc["attributes"].get("privacyChoicesUrl")
+            loc_data = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
+            if loc_data and "data" in loc_data:
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    for loc in loc_data["data"]:
+                        cursor.execute(
+                            """
+                            INSERT OR REPLACE INTO app_info_localizations 
+                            (localization_id, app_id, store_id, locale, name, subtitle, privacy_policy_url, privacy_choices_url) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                loc["id"],
+                                app_id,
+                                store_id,
+                                loc["attributes"].get("locale"),
+                                loc["attributes"].get("name"),
+                                loc["attributes"].get("subtitle"),
+                                loc["attributes"].get("privacyPolicyUrl"),
+                                loc["attributes"].get("privacyChoicesUrl")
+                            )
                         )
-                    )
-                conn.commit()
+                    conn.commit()
+                print(f"[SYNC ATTR] Inserted new app_info_localizations for {app_id}")
             else:
                 success = False
         else:
             success = False
-    else:
+
+    elif attr in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']:
+        # Version Attributes (platform-specific)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM app_version_localizations WHERE app_id = ? AND store_id = ? AND platform = ?", (app_id, store_id, platform))
+            cursor.execute("DELETE FROM app_versions WHERE app_id = ? AND store_id = ? AND platform = ?", (app_id, store_id, platform))
+            conn.commit()
+            print(f"[SYNC ATTR] Deleted old app_versions & localizations for {app_id} ({platform})")
+
         versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key, platform=platform)
         if versions_data and "data" in versions_data:
-            for version in versions_data["data"]:
-                version_id = version["id"]
-                version_platform = version["attributes"].get("platform", "UNKNOWN")
-                if platform and version_platform != platform:
-                    continue
-                version_localizations = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
-                if version_localizations and "data" in version_localizations:
-                    for loc in version_localizations["data"]:
-                        cursor.execute(
-                            """
-                            INSERT OR REPLACE INTO app_version_localizations 
-                            (localization_id, version_id, app_id, store_id, locale, description, keywords, 
-                            marketing_url, promotional_text, support_url, whats_new, platform) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                loc["id"], version_id, app_id, store_id, loc["attributes"].get("locale"),
-                                loc["attributes"].get("description"), loc["attributes"].get("keywords"),
-                                loc["attributes"].get("marketingUrl"), loc["attributes"].get("promotionalText"),
-                                loc["attributes"].get("supportUrl"), loc["attributes"].get("whatsNew"), version_platform
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                for version in versions_data["data"]:
+                    version_id = version["id"]
+                    plat = version["attributes"].get("platform")
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO app_versions (version_id, app_id, store_id, platform) VALUES (?, ?, ?, ?)",
+                        (version_id, app_id, store_id, plat)
+                    )
+
+                    loc_data = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
+                    if loc_data and "data" in loc_data:
+                        for loc in loc_data["data"]:
+                            cursor.execute(
+                                """
+                                INSERT OR REPLACE INTO app_version_localizations 
+                                (localization_id, version_id, app_id, store_id, locale, description, keywords, 
+                                marketing_url, promotional_text, support_url, whats_new, platform) 
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    loc["id"],
+                                    version_id,
+                                    app_id,
+                                    store_id,
+                                    loc["attributes"].get("locale"),
+                                    loc["attributes"].get("description"),
+                                    loc["attributes"].get("keywords"),
+                                    loc["attributes"].get("marketingUrl"),
+                                    loc["attributes"].get("promotionalText"),
+                                    loc["attributes"].get("supportUrl"),
+                                    loc["attributes"].get("whatsNew"),
+                                    plat
+                                )
                             )
-                        )
-                    conn.commit()
-                else:
-                    success = False
+                        conn.commit()
+                    else:
+                        success = False
+                print(f"[SYNC ATTR] Inserted new app_versions & localizations for {app_id} ({platform})")
         else:
             success = False
-    conn.close()
+
+    elif attr == 'screenshots':
+        # Screenshots (already handles delete in fetch_screenshots)
+        fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform=platform)
+
     return success
-
-# -------------------------------
-# NEW: Patch Attribute Data (Local to app.py)
-# -------------------------------
-# def patch_attribute_data(attribute, app_id, store_id, changes, issuer_id, key_id, private_key, platform=None):
-#     print(f"[PATCH] Patching attribute: {attribute} | App: {app_id} | Platform: {platform}")
-
-#     # Choose correct patch function
-#     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
-#         patch_func = patch_app_info_localization
-#     else:
-#         patch_func = patch_app_store_version_localization
-
-#     success = True
-#     for loc_id, value in changes.items():
-#         if value is not None:
-#             if not patch_func(loc_id, {attribute: value}, issuer_id, key_id, private_key):
-#                 st.error(f"Failed to update {attribute} for locale ID: {loc_id}")
-#                 success = False
-
-#     # After patch: Sync latest from App Store
-#     if success:
-#         with st.spinner(f"Syncing latest data from App Store for {attribute} of {app_id}"):
-#             sync_success = sync_attribute_data(
-#                 attribute, app_id, store_id,
-#                 issuer_id, key_id, private_key,
-#                 platform=platform
-#             )
-#             if not sync_success:
-#                 st.warning("Patched, but sync failed.")
-#     else:
-#         st.error("Some updates failed.")
-
-#     # Push DB to GitHub
-#     sync_db_to_github()
-#     return success
 
 def get_attribute_data(attribute, app_id, store_id, platform=None):
     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
