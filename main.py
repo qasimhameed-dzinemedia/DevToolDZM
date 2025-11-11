@@ -681,40 +681,45 @@ def patch_screenshots(app_id, store_id, changes, issuer_id, key_id, private_key)
     return overall_success
 
 # -------------------------------
-# Process Single App Data
+# Process Single App Data (UPDATED: Delete old data first)
 # -------------------------------
 def process_app(app, store_id, issuer_id, key_id, private_key):
     app_id = app.get("id")
     app_name = app.get("attributes", {}).get("name", "Unknown")
     print(f"Starting fetch for app: {app_name} (ID: {app_id})")
 
+    # === STEP 1: DELETE ALL OLD DATA FOR THIS APP ===
+    print(f"[SYNC] Deleting old data for app {app_id}...")
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        print(f"Saving app {app_name} to database...")
+        cursor.execute("DELETE FROM app_screenshots WHERE app_id = ? AND store_id = ?", (app_id, store_id))
+        cursor.execute("DELETE FROM app_version_localizations WHERE app_id = ? AND store_id = ?", (app_id, store_id))
+        cursor.execute("DELETE FROM app_versions WHERE app_id = ? AND store_id = ?", (app_id, store_id))
+        cursor.execute("DELETE FROM app_info_localizations WHERE app_id = ? AND store_id = ?", (app_id, store_id))
+        conn.commit()
+    print(f"[SYNC] Old data deleted for app {app_id}.")
+
+    # === STEP 2: Save app name (always fresh) ===
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
         cursor.execute(
             "INSERT OR REPLACE INTO apps (app_id, store_id, name) VALUES (?, ?, ?)",
             (app_id, store_id, app_name)
         )
         conn.commit()
-        print(f"Saved app {app_name} to database.")
 
-    # Fetch app info
+    # === STEP 3: Fetch & Insert App Info (Delete + Insert) ===
     app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
-
-    # Process app info localizations (second appInfo if available, but typically one; assume first for simplicity, adjust if needed)
     if app_info_data and "data" in app_info_data and app_info_data["data"]:
-        # Take the second element if exists, else first
         app_info_index = 1 if len(app_info_data["data"]) > 1 else 0
         app_info_id = app_info_data["data"][app_info_index].get("id")
-        print(f"Processing app info ID {app_info_id} (index {app_info_index}) for app {app_name}...")
         app_info_localizations = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
         time.sleep(REQUEST_DELAY)
+
         if app_info_localizations and "data" in app_info_localizations:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
                 for loc in app_info_localizations["data"]:
-                    locale = loc["attributes"].get("locale")
-                    print(f"Saving app info localization for locale {locale}...")
                     cursor.execute(
                         """
                         INSERT OR REPLACE INTO app_info_localizations 
@@ -722,31 +727,21 @@ def process_app(app, store_id, issuer_id, key_id, private_key):
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            loc["id"],
-                            app_id,
-                            store_id,
-                            locale,
-                            loc["attributes"].get("name"),
-                            loc["attributes"].get("subtitle"),
-                            loc["attributes"].get("privacyPolicyUrl"),
-                            loc["attributes"].get("privacyChoicesUrl")
+                            loc["id"], app_id, store_id, loc["attributes"].get("locale"),
+                            loc["attributes"].get("name"), loc["attributes"].get("subtitle"),
+                            loc["attributes"].get("privacyPolicyUrl"), loc["attributes"].get("privacyChoicesUrl")
                         )
                     )
-                    conn.commit()
-                    print(f"Saved app info localization for locale {locale}.")
-        else:
-            print(f"No app info localizations found for app info ID {app_info_id}.")
-    else:
-        print(f"No app info found for app ID {app_id}.")
+                conn.commit()
 
-    # Fetch app store versions with PREPARE_FOR_SUBMISSION
+    # === STEP 4: Fetch & Insert Versions + Localizations (Delete + Insert) ===
     versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
     if versions_data and "data" in versions_data:
-        # Process each version (expected 2: iOS and macOS)
         for version in versions_data["data"]:
             version_id = version["id"]
             platform = version["attributes"].get("platform", "UNKNOWN")
-            print(f"Processing {platform} version ID {version_id} for app {app_name}...")
+
+            # Insert version
             with get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
@@ -754,18 +749,14 @@ def process_app(app, store_id, issuer_id, key_id, private_key):
                     (version_id, app_id, store_id, platform)
                 )
                 conn.commit()
-                print(f"Saved {platform} version ID {version_id}.")
 
-            # Fetch version localizations
+            # Fetch and insert localizations
             version_localizations = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
             time.sleep(REQUEST_DELAY)
             if version_localizations and "data" in version_localizations:
                 with get_db_connection() as conn:
                     cursor = conn.cursor()
                     for loc in version_localizations["data"]:
-                        loc_id = loc["id"]
-                        locale = loc["attributes"].get("locale")
-                        print(f"Saving {platform} version localization for locale {locale}...")
                         cursor.execute(
                             """
                             INSERT OR REPLACE INTO app_version_localizations 
@@ -774,99 +765,84 @@ def process_app(app, store_id, issuer_id, key_id, private_key):
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
-                                loc_id,
-                                version_id,
-                                app_id,
-                                store_id,
-                                locale,
-                                loc["attributes"].get("description"),
-                                loc["attributes"].get("keywords"),
-                                loc["attributes"].get("marketingUrl"),
-                                loc["attributes"].get("promotionalText"),
-                                loc["attributes"].get("supportUrl"),
-                                loc["attributes"].get("whatsNew"),
-                                platform
+                                loc["id"], version_id, app_id, store_id, loc["attributes"].get("locale"),
+                                loc["attributes"].get("description"), loc["attributes"].get("keywords"),
+                                loc["attributes"].get("marketingUrl"), loc["attributes"].get("promotionalText"),
+                                loc["attributes"].get("supportUrl"), loc["attributes"].get("whatsNew"), platform
                             )
                         )
-                        conn.commit()
-                        print(f"Saved {platform} version localization for locale {locale}.")
-            else:
-                print(f"No {platform} version localizations found for version ID {version_id}.")
-    else:
-        print(f"No app store versions with PREPARE_FOR_SUBMISSION found for app ID {app_id}.")   
-    # -------------------------------
-    # Call: Fetch Screenshots
-    # -------------------------------
+                    conn.commit()
+
+    # === STEP 5: Fetch Screenshots (already deletes old data) ===
     fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key)
 
-    print(f"Completed fetch for app: {app_name} (ID: {app_id})")
-
+    print(f"Completed fresh sync for app: {app_name} (ID: {app_id})")
     sync_db_to_github()
-
     return app_id, True
 
 # -------------------------------------------------
-# NEW: fetch & store data for ONE app only
+# NEW: fetch & store data for ONE app only (DELETE OLD FIRST)
 # -------------------------------------------------
 def fetch_and_store_single_app(app_id, store_id, issuer_id, key_id, private_key):
-    """
-    Re-run the whole pipeline that `process_app()` does, but for a single app.
-    Returns True on success, False otherwise.
-    """
-    # 1. Get the app record (we need the name for logging)
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute("SELECT name FROM apps WHERE app_id = ? AND store_id = ?", (app_id, store_id))
         row = cur.fetchone()
         app_name = row[0] if row else "Unknown"
 
-    print(f"[SYNC SINGLE] Starting refresh for app {app_name} (ID: {app_id}) …")
+    print(f"[SYNC SINGLE] Starting FULL refresh for app {app_name} (ID: {app_id}) …")
 
-    # 2. Build a dummy “app” dict that matches what `fetch_all_apps()` returns
+    # Build dummy app dict
     dummy_app = {"id": app_id, "attributes": {"name": app_name}}
 
-    # 3. Run the same processing logic that the bulk fetch uses
+    # Run full delete + fresh insert
     try:
         _, success = process_app(dummy_app, store_id, issuer_id, key_id, private_key)
         if success:
-            print(f"[SYNC SINGLE] App {app_name} refreshed successfully.")
-            
+            print(f"[SYNC SINGLE] App {app_name} refreshed 100% fresh.")
             sync_db_to_github()
-
         else:
-            print(f"[SYNC SINGLE] Failed to refresh app {app_name}.")
+            print(f"[SYNC SINGLE] Failed.")
         return success
     except Exception as e:
-        print(f"[SYNC SINGLE] Exception while refreshing app {app_name}: {e}")
+        print(f"[SYNC SINGLE] Error: {e}")
         return False
     
 # -------------------------------
-# Fetch and Store All Apps
+# Fetch and Store All Apps (DELETE OLD + CLEANUP REMOVED APPS)
 # -------------------------------
 def fetch_and_store_apps(store_id, issuer_id, key_id, private_key):
-    print(f"Starting data fetch for store_id {store_id}...")
+    print(f"Starting FULL data sync for store_id {store_id}...")
     apps = fetch_all_apps(issuer_id, key_id, private_key)
     if not apps:
-        print("No apps found or failed to fetch apps.")
+        print("No apps found.")
         return False
-    
-    print(f"Processing {len(apps)} apps...")
+
+    current_app_ids = [app.get("id") for app in apps]
     success_count = 0
+
     for app in apps:
         try:
             app_id, success = process_app(app, store_id, issuer_id, key_id, private_key)
             if success:
                 success_count += 1
-                print(f"Successfully processed app ID {app_id}.")
-            else:
-                print(f"Failed to process app ID {app_id}.")
         except Exception as e:
-            print(f"Error processing app ID {app.get('id')}: {e}")
-    
-    print(f"Successfully fetched and stored {success_count}/{len(apps)} apps for store_id {store_id}.")
+            print(f"Error processing app {app.get('id')}: {e}")
 
+    # === CLEANUP: Remove data of apps no longer in Apple Store ===
+    if current_app_ids:
+        print(f"[CLEANUP] Removing data for deleted apps in store {store_id}...")
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join('?' for _ in current_app_ids)
+            for table in ['app_screenshots', 'app_version_localizations', 'app_versions', 'app_info_localizations', 'apps']:
+                query = f"DELETE FROM {table} WHERE store_id = ? AND app_id NOT IN ({placeholders})"
+                cursor.execute(query, (store_id, *current_app_ids))
+            conn.commit()
+        print(f"[CLEANUP] Done. Only current apps remain.")
+
+    print(f"Successfully synced {success_count}/{len(apps)} apps.")
     sync_db_to_github()
-
     return success_count > 0
 
 if __name__ == "__main__":
