@@ -8,6 +8,7 @@ import hashlib
 from bs4 import BeautifulSoup
 import re
 import json
+from PIL import Image
 from main import (
     fetch_and_store_apps,
     patch_app_info_localization,
@@ -17,7 +18,7 @@ from main import (
     fetch_app_store_versions,
     fetch_app_store_version_localizations,
     fetch_and_store_single_app,
-    patch_screenshots,
+    upload_screenshots_dashboard,
     fetch_screenshots,
     sync_db_to_github
 )
@@ -87,6 +88,39 @@ locale_names = {
     "UR":     "Urdu",                       # Pakistan, India
     "IW":     "Hebrew (Legacy)",            # Old code (same as HE)
     "NB":     "Norwegian Bokmål"            # More specific than NO
+}
+
+# === DISPLAY TYPES PER PLATFORM ===
+DISPLAY_TYPES = {
+    "IOS": [
+        "APP_IPHONE_65",
+        "APP_IPHONE_69",
+        "APP_IPAD_PRO_3GEN_129"
+    ],
+    "MAC_OS": [
+        "APP_DESKTOP"
+    ]
+}
+
+# === VALID SIZES ===
+VALID_SIZES = {
+    "APP_IPHONE_65": [
+        (1242, 2688), (2688, 1242),
+        (1284, 2778), (2778, 1284)
+    ],
+    "APP_IPHONE_69": [
+        (1260, 2736), (2736, 1260),
+        (1320, 2868), (2868, 1320),
+        (1290, 2796), (2796, 1290)
+    ],
+    "APP_IPAD_PRO_3GEN_129": [
+        (2064, 2752), (2752, 2064),
+        (2048, 2732), (2732, 2048)
+    ],
+    "APP_DESKTOP": [
+        (1280, 800), (1440, 900),
+        (2560, 1600), (2880, 1800)
+    ]
 }
 
 # -------------------------------
@@ -1179,60 +1213,107 @@ def main():
                             st.rerun()
 
         if attr == 'screenshots':
-            platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select")
+            platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select_screenshots")
             st.session_state['platform'] = platform
+            platform_name = "iOS" if platform == "IOS" else "macOS"
             st.markdown("---")
-            
-            df = load_screenshots(selected_app_id, selected_store_id, platform)
-            if df.empty:
-                st.warning(f"No screenshots found for {platform}.")
-            else:
-                st.markdown(f"#### Editing Screenshots for {'iOS' if platform == 'IOS' else 'macOS'}")
-                st.markdown("---")
-                changes = {}
 
-                for locale, loc_group in df.groupby('locale'):
-                    full_name = locale_names.get(locale.upper(), locale.upper())
-                    with st.expander(f"{locale.upper()} – {full_name}", expanded=True):
-                        for disp_type, disp_group in loc_group.groupby('display_type'):
-                            clean_name = disp_type.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').title()
-                            count = len(disp_group)
-                            st.markdown(f"**{clean_name}** ({count} screenshot{'' if count == 1 else 's'})")
-                            
-                            # === NEW LAYOUT: 4 columns, vertical stack ===
-                            screenshots = list(disp_group.itertuples())
-                            if not screenshots:
+            # --- Tabs: View | Upload ---
+            tab_view, tab_upload = st.tabs(["View Screenshots", "Upload / Replace"])
+
+            # =================================================================
+            # TAB 1: VIEW (Existing + Refresh)
+            # =================================================================
+            with tab_view:
+                if st.button("Refresh Screenshots", key="refresh_screenshots_tab"):
+                    with st.spinner(f"Fetching latest screenshots for {platform_name}..."):
+                        fetch_screenshots(selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform=platform)
+                    st.rerun()
+
+                df = load_screenshots(selected_app_id, selected_store_id, platform)
+                if df.empty:
+                    st.info(f"No screenshots found for {platform_name}.")
+                else:
+                    for locale, loc_group in df.groupby('locale'):
+                        full_name = locale_names.get(locale.upper(), locale)
+                        with st.expander(f"{locale.upper()} – {full_name}", expanded=False):
+                            for disp_type, disp_group in loc_group.groupby('display_type'):
+                                clean_name = disp_type.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').title()
+                                count = len(disp_group)
+                                st.markdown(f"**{clean_name}** ({count} screenshot{'' if count == 1 else 's'})")
+                                cols = st.columns(4)
+                                for idx, row in enumerate(disp_group.itertuples()):
+                                    with cols[idx % 4]:
+                                        st.image(row.url, use_column_width=True, caption=f"{row.width}×{row.height}")
+                                st.markdown("---")
+
+            # =================================================================
+            # TAB 2: UPLOAD / REPLACE
+            # =================================================================
+            with tab_upload:
+                st.markdown(f"#### Upload New or Replace Existing {platform} Screenshots")
+                locale = st.selectbox("Locale", get_locales(selected_app_id, selected_store_id), key="upload_locale")
+                display_type = st.selectbox(
+                    "Display Type",
+                    options=DISPLAY_TYPES[platform],
+                    format_func=lambda x: x.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').title(),
+                    key="upload_display_type"
+                )
+                action = st.radio("Action", ["POST (Add New)", "UPDATE (Replace All)"], horizontal=True, key="upload_action")
+
+                uploaded_files = st.file_uploader(
+                    f"Upload up to 10 JPG/PNG ({', '.join([f'{w}×{h}' for w,h in VALID_SIZES[display_type]])})",
+                    type=['png', 'jpg', 'jpeg'],
+                    accept_multiple_files=True,
+                    key="screenshot_files"
+                )
+
+                if uploaded_files:
+                    valid_files = []
+                    for file in uploaded_files:
+                        try:
+                            img = Image.open(file)
+                            w, h = img.size
+                            if (w, h) not in VALID_SIZES[display_type]:
+                                st.error(f"**{file.name}**: Invalid size `{w}×{h}`. Must be: {', '.join([f'{w}×{h}' for w,h in VALID_SIZES[display_type]])}")
                                 continue
-                            cols = st.columns(4)
-                            for idx, row in enumerate(screenshots):
-                                with cols[idx % 4]:
-                                    st.image(row.url, use_column_width=True, caption=f"{row.width}×{row.height}")
-                                    new_url = st.text_input(
-                                        "Replace URL", value="",
-                                        key=f"shot_{row.localization_id}_{disp_type}_{row.Index}",
-                                        placeholder="Paste new image URL",
-                                        label_visibility="collapsed"
-                                    )
-                                    if new_url.strip():
-                                        changes[f"{row.localization_id}_{disp_type}_{row.Index}"] = {
-                                            'localization_id': row.localization_id,
-                                            'display_type': disp_type,
-                                            'new_url': new_url.strip()
-                                        }
-                            st.markdown("---")
+                            if len(valid_files) >= 10:
+                                st.warning("Maximum 10 screenshots allowed. Extra files ignored.")
+                                break
+                            valid_files.append((file.name, file.getvalue(), img.format.lower()))
+                        except Exception as e:
+                            st.error(f"**{file.name}**: Invalid image - {e}")
 
-                if st.button("Save Changes", key="save_screenshots"):
-                    if not changes:
-                        st.warning("No new URLs entered.")
+                    if valid_files:
+                        st.success(f"{len(valid_files)} valid screenshot(s) ready.")
                     else:
-                        with st.spinner("Updating screenshots..."):
-                            success = patch_screenshots(selected_app_id, selected_store_id, changes, issuer_id, key_id, private_key)
-                            if success:
-                                st.success("Screenshots updated!")
-                                sync_db_to_github()
-                                st.rerun()
-                            else:
-                                st.error("Failed to update.")
+                        st.stop()
+
+                if st.button("Upload Screenshots", key="upload_screenshots_btn") and uploaded_files:
+                    with st.spinner(f"Uploading {len(valid_files)} screenshot(s)..."):
+                        # --- Call new upload function ---
+                        # Convert valid_files → list of (name, bytes, format)
+                        file_tuples = [(f[0], f[1], f[2]) for f in valid_files]
+
+                        success = upload_screenshots_dashboard(
+                            issuer_id=issuer_id,
+                            key_id=key_id,
+                            private_key=private_key,
+                            app_id=selected_app_id,
+                            locale=locale,
+                            platform=platform,
+                            display_type=display_type,
+                            action="UPDATE" if "UPDATE" in action else "POST",
+                            files=file_tuples
+                        )
+                        if success:
+                            st.success("Screenshots uploaded successfully!")
+                            # Refresh DB
+                            fetch_screenshots(selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform=platform)
+                            sync_db_to_github()
+                            st.rerun()
+                        else:
+                            st.error("Upload failed. Check errors above.")
 
     st.markdown("---")
     st.markdown(
