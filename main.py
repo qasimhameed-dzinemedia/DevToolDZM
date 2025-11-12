@@ -541,144 +541,152 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
     return all_screenshots
 
 # -------------------------------
-# NEW: Patch Screenshots (Reusable)
+# NEW: Upload Screenshots (Dashboard Version) - Replaces patch_screenshots
 # -------------------------------
-def patch_screenshots(app_id, store_id, changes, issuer_id, key_id, private_key):
+def upload_screenshots_dashboard(issuer_id, key_id, private_key, app_id, locale, platform, display_type, action, files):
+    """
+    Uploads or replaces screenshots via Apple App Store Connect API
+    action: "POST" or "UPDATE"
+    files: list of (filename, bytes, format)
+    """
+
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        st.error("Could not generate JWT for screenshot upload.")
         return False
 
-    overall_success = True
+    BASE = "https://api.appstoreconnect.apple.com/v1"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    for shot_key, data in changes.items():
-        loc_id      = data['localization_id']
-        disp_type   = data['display_type']
-        new_url     = data['new_url'].strip()
+    try:
+        # 1. Get App Store Version (PREPARE_FOR_SUBMISSION)
+        versions_resp = requests.get(f"{BASE}/apps/{app_id}/appStoreVersions", headers=headers)
+        versions_resp.raise_for_status()
+        versions = versions_resp.json()["data"]
+        version = next(
+            (v for v in versions
+             if v["attributes"]["platform"] == platform and v["attributes"]["appStoreState"] == "PREPARE_FOR_SUBMISSION"),
+            None
+        )
+        if not version:
+            print(f"[ERROR] No {platform} version in PREPARE_FOR_SUBMISSION")
+            return False
+        version_id = version["id"]
 
-        # -----------------------------------------------------------------
-        # 1. Find the correct screenshot set for the locale + display type
-        # -----------------------------------------------------------------
-        sets_url = f"{BASE_URL}/appStoreVersionLocalizations/{loc_id}/appScreenshotSets"
-        sets_resp = get(sets_url, token)
-        if not sets_resp or 'data' not in sets_resp:
-            st.error(f"Could not fetch screenshot sets for locale {loc_id}")
-            overall_success = False
-            continue
+        # 2. Get Localization
+        locs_resp = requests.get(f"{BASE}/appStoreVersions/{version_id}/appStoreVersionLocalizations", headers=headers)
+        locs_resp.raise_for_status()
+        locs = locs_resp.json()["data"]
+        loc = next((l for l in locs if l["attributes"]["locale"].lower() == locale.lower()), None)
+        if not loc:
+            print(f"[ERROR] Locale {locale} not found")
+            return False
+        loc_id = loc["id"]
 
-        set_id = None
-        for s in sets_resp['data']:
-            if s['attributes']['screenshotDisplayType'] == disp_type:
-                set_id = s['id']
-                break
-        if not set_id:
-            st.error(f"Screenshot set not found for display type `{disp_type}`")
-            overall_success = False
-            continue
+        # 3. Get or Create Screenshot Set
+        sets_resp = requests.get(f"{BASE}/appStoreVersionLocalizations/{loc_id}/appScreenshotSets", headers=headers)
+        sets_resp.raise_for_status()
+        sets = sets_resp.json()["data"]
+        sset = next((s for s in sets if s["attributes"]["screenshotDisplayType"] == display_type), None)
 
-        # -----------------------------------------------------------------
-        # 2. Download the new image (once per screenshot)
-        # -----------------------------------------------------------------
-        try:
-            img_resp = requests.get(new_url, timeout=30)
-            img_resp.raise_for_status()
-            img_bytes = img_resp.content
-        except Exception as e:
-            st.error(f"Failed to download image from `{new_url}`: {e}")
-            overall_success = False
-            continue
-
-        # -----------------------------------------------------------------
-        # 3. Create a new screenshot placeholder (returns uploadOperations)
-        # -----------------------------------------------------------------
-        create_url = f"{BASE_URL}/appScreenshots"
-        create_payload = {
-            "data": {
-                "type": "appScreenshots",
-                "attributes": {
-                    "fileName": f"{disp_type}.jpg",
-                    "fileSize": len(img_bytes)
-                },
-                "relationships": {
-                    "appScreenshotSet": {
-                        "data": {"type": "appScreenshotSets", "id": set_id}
+        if not sset:
+            create_payload = {
+                "data": {
+                    "type": "appScreenshotSets",
+                    "attributes": {"screenshotDisplayType": display_type},
+                    "relationships": {
+                        "appStoreVersionLocalization": {
+                            "data": {"type": "appStoreVersionLocalizations", "id": loc_id}
+                        }
                     }
                 }
             }
-        }
-        create_resp = requests.post(
-            create_url,
-            json=create_payload,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        )
-        if create_resp.status_code != 201:
-            st.error(f"Failed to create screenshot placeholder: {create_resp.text}")
-            overall_success = False
-            continue
+            create_resp = requests.post(f"{BASE}/appScreenshotSets", json=create_payload, headers=headers)
+            if create_resp.status_code != 201:
+                print(f"[ERROR] Failed to create screenshot set: {create_resp.text}")
+                return False
+            sset_id = create_resp.json()["data"]["id"]
+            print(f"[INFO] Created new screenshot set: {sset_id}")
+        else:
+            sset_id = sset["id"]
+            print(f"[INFO] Using existing screenshot set: {sset_id}")
 
-        screenshot_data = create_resp.json()['data']
-        screenshot_id   = screenshot_data['id']
-        upload_ops      = screenshot_data['attributes']['uploadOperations']
+        # 4. If UPDATE → Delete all existing
+        if action == "UPDATE":
+            existing_resp = requests.get(f"{BASE}/appScreenshotSets/{sset_id}/appScreenshots", headers=headers)
+            existing_resp.raise_for_status()
+            existing = existing_resp.json().get("data", [])
+            for shot in existing:
+                del_resp = requests.delete(f"{BASE}/appScreenshots/{shot['id']}", headers=headers)
+                if del_resp.status_code not in [200, 204]:
+                    print(f"[WARN] Failed to delete old screenshot {shot['id']}")
+            print(f"[INFO] Deleted {len(existing)} existing screenshots.")
 
-        # -----------------------------------------------------------------
-        # 4. Upload each chunk (most screenshots are a single part)
-        # -----------------------------------------------------------------
-        upload_ok = True
-        for op in upload_ops:
-            # Build proper dict headers
-            op_headers = {h["name"]: h["value"] for h in op.get("headers", [])}
+        # 5. Upload each file
+        uploaded = 0
+        for idx, (filename, file_bytes, img_format) in enumerate(files, 1):
+            print(f"[UPLOAD] {idx}/{len(files)}: {filename}")
 
-            # Slice the image data according to offset/length (handles large files)
-            offset = op.get("offset", 0)
-            length = op.get("length", len(img_bytes) - offset)
-            chunk  = img_bytes[offset:offset + length]
-
-            up_resp = requests.request(
-                method=op['method'],
-                url=op['url'],
-                data=chunk,
-                headers=op_headers,
-                timeout=60
-            )
-            if up_resp.status_code >= 400:
-                st.error(f"Chunk upload failed: {up_resp.status_code} {up_resp.text}")
-                upload_ok = False
-                break
-
-        if not upload_ok:
-            overall_success = False
-            continue
-
-        # -----------------------------------------------------------------
-        # 5. Mark the screenshot as uploaded (PATCH …/appScreenshots/{id})
-        # -----------------------------------------------------------------
-        finish_url = f"{BASE_URL}/appScreenshots/{screenshot_id}"
-        finish_payload = {
-            "data": {
-                "type": "appScreenshots",
-                "id": screenshot_id,
-                "attributes": {"uploaded": True}
+            # Create placeholder
+            create_payload = {
+                "data": {
+                    "type": "appScreenshots",
+                    "attributes": {
+                        "fileName": filename,
+                        "fileSize": len(file_bytes)
+                    },
+                    "relationships": {
+                        "appScreenshotSet": {
+                            "data": {"type": "appScreenshotSets", "id": sset_id}
+                        }
+                    }
+                }
             }
-        }
-        finish_resp = requests.patch(
-            finish_url,
-            json=finish_payload,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        )
-        if finish_resp.status_code != 200:
-            st.error(f"Failed to finalize screenshot {screenshot_id}: {finish_resp.text}")
-            overall_success = False
-            continue
+            create_resp = requests.post(f"{BASE}/appScreenshots", json=create_payload, headers=headers)
+            if create_resp.status_code != 201:
+                print(f"[ERROR] Create failed: {create_resp.text}")
+                return False
 
-        st.success(f"Uploaded {disp_type} screenshot for locale `{loc_id}`")
+            data = create_resp.json()["data"]
+            screenshot_id = data["id"]
+            upload_ops = data["attributes"]["uploadOperations"]
 
-    # -----------------------------------------------------------------
-    # 6. Refresh DB after all uploads (so UI shows new URLs)
-    # -----------------------------------------------------------------
-    if overall_success:
-        fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key)
+            # Upload chunks
+            for op in upload_ops:
+                start = op["offset"]
+                length = op["length"]
+                chunk = file_bytes[start:start + length]
+                op_headers = {h["name"]: h["value"] for h in op.get("headers", [])}
+                up_resp = requests.request(op["method"], op["url"], data=chunk, headers=op_headers, timeout=60)
+                if up_resp.status_code >= 400:
+                    print(f"[ERROR] Chunk upload failed: {up_resp.status_code}")
+                    return False
 
-    return overall_success
+            # Finalize upload
+            finalize_resp = requests.patch(
+                f"{BASE}/appScreenshots/{screenshot_id}",
+                json={"data": {"type": "appScreenshots", "id": screenshot_id, "attributes": {"uploaded": True}}},
+                headers=headers
+            )
+            if finalize_resp.status_code != 200:
+                print(f"[ERROR] Finalize failed: {finalize_resp.text}")
+                return False
+
+            uploaded += 1
+
+        print(f"[SUCCESS] Uploaded {uploaded} screenshot(s)")
+        return True
+
+    except requests.exceptions.RequestException as e:
+        print(f"[HTTP ERROR] {e}")
+        if e.response is not None:
+            try:
+                print(e.response.json())
+            except:
+                print(e.response.text)
+        return False
+    except Exception as e:
+        print(f"[EXCEPTION] {e}")
+        return False
 
 # -------------------------------
 # Process Single App Data (UPDATED: Delete old data first)
