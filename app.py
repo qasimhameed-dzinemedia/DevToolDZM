@@ -286,7 +286,7 @@ def login():
         st.markdown(
     """
     <h2 style='text-align:center; margin-bottom: 25px;'>
-        App Store Metadata Manager
+        🔒 App Store Metadata Manager
     </h2>
     """,
     unsafe_allow_html=True
@@ -1260,7 +1260,7 @@ def main():
                     action = st.radio("Action", ["POST (Add New)", "UPDATE (Replace All)"], horizontal=True, key="upload_action")
 
                     uploaded_files = st.file_uploader(
-                        f"Upload up to 10 JPG/PNG ({', '.join([f'{w}×{h}' for w,h in VALID_SIZES[display_type]])})",
+                        f"Upload JPG/PNG ({', '.join([f'{w}×{h}' for w,h in VALID_SIZES[display_type]])})",
                         type=['png', 'jpg', 'jpeg'],
                         accept_multiple_files=True,
                         key="screenshot_files"
@@ -1288,7 +1288,7 @@ def main():
                         else:
                             st.stop()
 
-                    submit_btn = st.form_submit_button("Upload Screenshots", type="primary")
+                    submit_btn = st.form_submit_button("Upload Screenshots")
 
                 # --- Upload & Reset via rerun ONLY ---
                 if submit_btn:
