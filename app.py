@@ -1243,75 +1243,103 @@ def main():
                                 st.markdown("---")
 
             # =================================================================
-            # TAB 2: UPLOAD / REPLACE
+            # TAB 2: UPLOAD ALL LOCALES AT ONCE
             # =================================================================
             with tab_upload:
-                st.markdown(f"#### Upload New or Replace Existing {platform_name} Screenshots")
+                locales = get_locales(selected_app_id, selected_store_id)
+                if not locales:
+                    st.warning("No locales found.")
+                    st.stop()
 
-                # --- FORM with auto-clear ---
-                with st.form(key="screenshot_upload_form", clear_on_submit=True):
-                    locale = st.selectbox("Locale", get_locales(selected_app_id, selected_store_id), key="upload_locale")
-                    display_type = st.selectbox(
-                        "Display Type",
-                        options=DISPLAY_TYPES[platform],
-                        format_func=lambda x: x.replace('_', ' ').replace('iPhone', 'iPhone').replace('IPAD', 'iPad').title(),
-                        key="upload_display_type"
-                    )
-                    action = st.radio("Action", ["POST (Add New)", "UPDATE (Replace All)"], horizontal=True, key="upload_action")
+                # Store selections
+                if "screenshot_selections" not in st.session_state:
+                    st.session_state.screenshot_selections = {}
 
-                    uploaded_files = st.file_uploader(
-                        f"Upload JPG/PNG ({', '.join([f'{w}×{h}' for w,h in VALID_SIZES[display_type]])})",
-                        type=['png', 'jpg', 'jpeg'],
-                        accept_multiple_files=True,
-                        key="screenshot_files"
-                    )
+                upload_data = []
 
-                    # --- Validate ---
-                    valid_files = []
-                    if uploaded_files:
-                        for file in uploaded_files:
-                            try:
-                                img = Image.open(file)
-                                w, h = img.size
-                                if (w, h) not in VALID_SIZES[display_type]:
-                                    st.error(f"**{file.name}**: Invalid size `{w}×{h}`")
-                                    continue
-                                if len(valid_files) >= 10:
-                                    st.warning("Max 10 screenshots. Extra ignored.")
-                                    break
-                                valid_files.append((file.name, file.getvalue(), img.format.lower()))
-                            except Exception as e:
-                                st.error(f"**{file.name}**: Invalid image - {e}")
+                for locale in sorted(locales):
+                    full_name = locale_names.get(locale.upper(), locale)
+                    with st.expander(f"{locale.upper()} – {full_name}", expanded=True):
+                        col1, col2 = st.columns([2, 2])
+                        with col1:
+                            display_type = st.selectbox(
+                                "Display Type",
+                                options=DISPLAY_TYPES[platform],
+                                format_func=lambda x: x.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').replace('APP_', '').title(),
+                                key=f"display_{locale}_{platform}"
+                            )
+                        with col2:
+                            action = st.radio(
+                                "Action",
+                                ["POST (Add New)", "UPDATE (Replace All)"],
+                                horizontal=True,
+                                key=f"action_{locale}_{platform}"
+                            )
 
-                        if valid_files:
-                            st.success(f"{len(valid_files)} valid screenshot(s) ready.")
-                        else:
-                            st.stop()
-
-                    submit_btn = st.form_submit_button("Upload Screenshots")
-
-                # --- Upload & Reset via rerun ONLY ---
-                if submit_btn:
-                    with st.spinner(f"Uploading {len(valid_files)} screenshot(s)..."):
-                        success = upload_screenshots_dashboard(
-                            issuer_id=issuer_id,
-                            key_id=key_id,
-                            private_key=private_key,
-                            app_id=selected_app_id,
-                            locale=locale,
-                            platform=platform,
-                            display_type=display_type,
-                            action="UPDATE" if "UPDATE" in action else "POST",
-                            files=[(f[0], f[1], f[2]) for f in valid_files]
+                        uploaded_files = st.file_uploader(
+                            f"Upload screenshots for {display_type.replace('_', ' ').title()} ({', '.join([f'{w}×{h}' for w,h in VALID_SIZES[display_type]])})",
+                            type=['png', 'jpg', 'jpeg'],
+                            accept_multiple_files=True,
+                            key=f"uploader_{locale}_{platform}_{display_type}"
                         )
 
-                        if success:
-                            st.success("Screenshots uploaded successfully!")
-                            fetch_screenshots(selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform=platform)
-                            sync_db_to_github()
-                            st.rerun()
-                        else:
-                            st.error("Upload failed.")
+                        valid_files = []
+                        if uploaded_files:
+                            for file in uploaded_files:
+                                try:
+                                    img = Image.open(file)
+                                    w, h = img.size
+                                    if (w, h) not in VALID_SIZES[display_type] and (h, w) not in VALID_SIZES[display_type]:
+                                        st.error(f"{file.name}: Wrong size → {w}×{h}")
+                                        continue
+                                    valid_files.append((file.name, file.getvalue(), img.format.lower()))
+                                except Exception:
+                                    st.error(f"{file.name}: Corrupted image")
+
+                            if valid_files:
+                                st.success(f"{len(valid_files)} valid file(s) ready")
+
+                        # Save selection for final upload
+                        if valid_files:
+                            upload_data.append({
+                                "locale": locale,
+                                "display_type": display_type,
+                                "action": "UPDATE" if "UPDATE" in action else "POST",
+                                "files": valid_files
+                            })
+
+                st.markdown("---")
+                if st.button("Upload Screenshots"):
+                    if not upload_data:
+                        st.error("No screenshots selected!")
+                    else:
+                        with st.spinner(f"Uploading {sum(len(d['files']) for d in upload_data)} screenshots..."):
+                            all_success = True
+                            for item in upload_data:
+                                success = upload_screenshots_dashboard(
+                                    issuer_id=issuer_id,
+                                    key_id=key_id,
+                                    private_key=private_key,
+                                    app_id=selected_app_id,
+                                    locale=item["locale"],
+                                    platform=platform,
+                                    display_type=item["display_type"],
+                                    action=item["action"],
+                                    files=[(f[0], f[1], f[2]) for f in item["files"]]
+                                )
+                                if not success:
+                                    st.error(f"Failed → {item['locale']} – {item['display_type']}")
+                                    all_success = False
+                                else:
+                                    st.success(f"Uploaded → {item['locale']} – {item['display_type']} ({len(item['files'])})")
+
+                            if all_success:
+                                st.success("Screenshots uploaded successfully!")
+                                fetch_screenshots(selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform=platform)
+                                sync_db_to_github()
+                                st.rerun()
+                            else:
+                                st.error("Upload failed.")
 
     st.markdown("---")
     st.markdown(
