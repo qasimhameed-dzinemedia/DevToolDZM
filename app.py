@@ -1129,6 +1129,9 @@ def main():
                             with st.spinner("Translating..."):
                                 for loc in locales:
                                     translated = translate_text(source_text, loc)
+                                    # NEW: remove ", " → "," only for keywords
+                                    if attr == "keywords":
+                                        translated = translated.replace(", ", ",").replace(" ،", "،").replace(" , ", ",").replace(" ، ", "،")
                                     time.sleep(4)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
