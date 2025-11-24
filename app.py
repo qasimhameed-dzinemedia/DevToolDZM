@@ -633,14 +633,7 @@ def get_locales(app_id, store_id):
 
 def call_translation_api_for_origin(user_text, src_lang):
     try:
-        if src_lang in ("uk", "ru", "fr", "es"):
-            url = "https://translator.oneupgamestudio.com/translate"
-            payload = {"text": user_text, "src": "en", "tgt": src_lang}
-            headers = {"Content-Type": "application/json", "X-Api-Key": "E64FUZgN4AGZ8yZr"}
-            response = requests.post(url, json=payload, headers=headers, timeout=15)
-            response.raise_for_status()
-            return response.json().get("translated_text", user_text)
-        else:
+        if src_lang:
             url = "https://translation-api-772439504210.us-central1.run.app/translate_to_origin"
             payload = {'user_inp': user_text, 'src_lang': src_lang}
             headers = {"X-Api-Key": "E64FUZgN4AGZ8yZr"}
