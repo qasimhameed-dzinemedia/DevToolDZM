@@ -690,8 +690,8 @@ def translate_text(text, locale):
         "TH":      "th",    # Thai
         "TR":      "tr",    # Turkish
         "VI":      "vi",    # Vietnamese
-        "ZHHANS":  "zh",    # Simplified Chinese
-        "ZHHANT":  "zh",    # Traditional Chinese (your API probably treats both as "zh")
+        "ZHHANS":  "zh-CN",    # Simplified Chinese
+        "ZHHANT":  "zh-TW",    # Traditional Chinese (your API probably treats both as "zh")
     }
     # ←←← END OF MAPPING ←←←
 
