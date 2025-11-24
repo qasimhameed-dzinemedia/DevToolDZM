@@ -631,17 +631,82 @@ def get_locales(app_id, store_id):
     conn.close()
     return df['locale'].tolist()
 
-def translate_text(text, locale):
-    if not gemini_model or not text.strip():
-        return text
+def call_translation_api_for_origin(user_text, src_lang):
     try:
-        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text."
-        response = gemini_model.generate_content(prompt)
-        return response.text.strip()
+        if src_lang in ("uk", "ru", "fr", "es"):
+            url = "https://translator.oneupgamestudio.com/translate"
+            payload = {"text": user_text, "src": "en", "tgt": src_lang}
+            headers = {"Content-Type": "application/json", "X-Api-Key": "E64FUZgN4AGZ8yZr"}
+            response = requests.post(url, json=payload, headers=headers, timeout=15)
+            response.raise_for_status()
+            return response.json().get("translated_text", user_text)
+        else:
+            url = "https://translation-api-772439504210.us-central1.run.app/translate_to_origin"
+            payload = {'user_inp': user_text, 'src_lang': src_lang}
+            headers = {"X-Api-Key": "E64FUZgN4AGZ8yZr"}
+            response = requests.post(url, data=payload, headers=headers, timeout=15)
+            response.raise_for_status()
+            return response.json().get("translated_text", user_text)
     except Exception as e:
-        st.error(f"Translation failed: {str(e)}")
+        st.error(f"Translation failed ({src_lang}): {str(e)}")
+        return user_text
+
+def translate_text(text, locale):
+    if not text.strip():
         return text
-    
+
+    # ←←← ADD / REPLACE THIS MAPPING ←←←
+    locale_map = {
+        # Already handled by the “special” endpoint (oneupgamestudio)
+        "RU":      "ru",
+        "UK":      "uk",
+        "FRFR":    "fr",   # FR-FR → fr
+        "FRCA":    "fr",   # FR-CA → fr
+        "ESES":    "es",   # ES-ES → es
+        "ESMX":    "es",   # ES-MX → es
+
+        # All other languages → your main Cloud Run endpoint
+        "ARSA":    "ar",    # Arabic
+        "CA":      "ca",    # Catalan
+        "CS":      "cs",    # Czech
+        "DA":      "da",    # Danish
+        "DEDE":    "de",    # German
+        "EL":      "el",    # Greek
+        "ENA U":   "en",    # EN-AU (fallback, not needed for translation)
+        "ENCA":    "en",
+        "ENGB":    "en",
+        "ENUS":    "en",
+        "FI":      "fi",    # Finnish
+        "HE":      "he",    # Hebrew
+        "HI":      "hi",    # Hindi
+        "HR":      "hr",    # Croatian
+        "HU":      "hu",    # Hungarian
+        "ID":      "id",    # Indonesian
+        "IT":      "it",    # Italian
+        "JA":      "ja",    # Japanese
+        "KO":      "ko",    # Korean
+        "MS":      "ms",    # Malay
+        "NLNL":    "nl",    # Dutch
+        "NO":      "no",    # Norwegian
+        "PL":      "pl",    # Polish
+        "PTBR":    "pt",    # Portuguese Brazil
+        "PTPT":    "pt",    # Portuguese Portugal (same code)
+        "RO":      "ro",    # Romanian
+        "SK":      "sk",    # Slovak
+        "SV":      "sv",    # Swedish
+        "TH":      "th",    # Thai
+        "TR":      "tr",    # Turkish
+        "VI":      "vi",    # Vietnamese
+        "ZHHANS":  "zh",    # Simplified Chinese
+        "ZHHANT":  "zh",    # Traditional Chinese (your API probably treats both as "zh")
+    }
+    # ←←← END OF MAPPING ←←←
+
+    target = locale.upper().replace("-", "")        # e.g. "fr-fr" → "FRFR"
+    src_lang = locale_map.get(target, target.lower())   # fallback = lowercase code
+
+    return call_translation_api_for_origin(text, src_lang)
+  
 # -------------------------------
 # Main Dashboard
 # -------------------------------
@@ -1132,7 +1197,7 @@ def main():
                                     # NEW: remove ", " → "," only for keywords
                                     if attr == "keywords":
                                         translated = translated.replace(", ", ",").replace(" ،", "،").replace(" , ", ",").replace(" ، ", "،")
-                                    time.sleep(4)
+                                    # time.sleep(4)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
