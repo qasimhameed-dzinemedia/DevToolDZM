@@ -126,7 +126,7 @@ VALID_SIZES = {
 # -------------------------------
 # Gemini AI Setup
 # -------------------------------
-GEMINI_API_KEY = "AIzaSyDaiLTMxeUB9EVB0l3g3laRCJS518WD3As"
+GEMINI_API_KEY = "AIzaSyCuk67UDCg3Rdn4i_ARvmR44t_rAfz54tM"
 gemini_model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -1196,12 +1196,12 @@ def main():
                         else:
                             with st.spinner("Translating..."):
                                 for loc in locales:
-                                    translated = translate_text(source_text, loc)
-                                    # translated = translate_text_with_gemini(source_text, loc)
+                                    # translated = translate_text(source_text, loc)
+                                    translated = translate_text_with_gemini(source_text, loc)
                                     # NEW: remove ", " → "," only for keywords
                                     if attr == "keywords":
                                         translated = translated.replace(", ", ",").replace(" ،", "،").replace(" , ", ",").replace(" ، ", "،")
-                                    # time.sleep(4)
+                                    time.sleep(4)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
