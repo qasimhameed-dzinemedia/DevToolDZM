@@ -1195,27 +1195,36 @@ def main():
                         if not source_text.strip():
                             st.warning("Please write English text first.")
                         else:
-                            with st.spinner("Translating..."):
-                                for loc in locales:
-                                    # translated = translate_text(source_text, loc)
-                                    translated = translate_text_with_gemini(source_text, loc)
-                                    # NEW: remove ", " → "," only for keywords
+                            with st.spinner("Translating all locales..."):
+                                for _, row in data.iterrows():
+                                    loc_id = row["localization_id"]
+                                    locale = row["locale"]
+                                    input_key = f"edit_{loc_id}"
+
+                                    translated = translate_text_with_gemini(source_text, locale)
                                     if attr == "keywords":
                                         translated = translated.replace(", ", ",").replace(" ،", "،").replace(" , ", ",").replace(" ، ", "،")
+                                    st.session_state[input_key] = translated
+
                                     time.sleep(4)
-                                    st.session_state[f"auto_{attr}_{loc}"] = translated
-                            st.success("Translated to all languages!")
+                            st.success("All locales translated successfully!")
+                            st.rerun()
 
                 url_attrs = ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']
                 if attr in url_attrs:
                     if st.button("Fill All Locales"):
                         if not source_text.strip():
-                            st.warning("Please enter a URL in the box above.")
+                            st.warning("Please enter a URL first.")
                         else:
-                            for loc in locales:
-                                st.session_state[f"auto_{attr}_{loc}"] = source_text.strip()
-                            st.success(f"Filled '{attr}' for all {len(locales)} locales!")
+                            for _, row in data.iterrows():
+                                loc_id = row["localization_id"]
+                                input_key = f"edit_{loc_id}"
 
+                                st.session_state[input_key] = source_text.strip()
+
+                            st.success(f"All {len(locales)} locales filled with the same URL!")
+                            st.rerun()
+                            
                 st.markdown("---")
 
                 for _, row in data.iterrows():
