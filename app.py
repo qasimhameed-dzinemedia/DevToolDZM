@@ -666,7 +666,7 @@ def translate_text(text, locale):
         "DA":      "da",    # Danish
         "DEDE":    "de",    # German
         "EL":      "el",    # Greek
-        "ENA U":   "en",    # EN-AU (fallback, not needed for translation)
+        "ENAU":   "en",    # EN-AU (fallback, not needed for translation)
         "ENCA":    "en",
         "ENGB":    "en",
         "ENUS":    "en",
@@ -1201,12 +1201,12 @@ def main():
                                     locale = row["locale"]
                                     input_key = f"edit_{loc_id}"
 
-                                    translated = translate_text_with_gemini(source_text, locale)
+                                    translated = translate_text(source_text, locale)
                                     if attr == "keywords":
                                         translated = translated.replace(", ", ",").replace(" ،", "،").replace(" , ", ",").replace(" ، ", "،")
                                     st.session_state[input_key] = translated
 
-                                    time.sleep(4)
+                                    time.sleep(1)
                             st.success("All locales translated successfully!")
                             st.rerun()
 
