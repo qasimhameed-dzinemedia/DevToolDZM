@@ -1196,12 +1196,12 @@ def main():
                         else:
                             with st.spinner("Translating..."):
                                 for loc in locales:
-                                    # translated = translate_text(source_text, loc)
-                                    translated = translate_text_with_gemini(source_text, loc)
+                                    translated = translate_text(source_text, loc)
+                                    # translated = translate_text_with_gemini(source_text, loc)
                                     # NEW: remove ", " → "," only for keywords
                                     if attr == "keywords":
                                         translated = translated.replace(", ", ",").replace(" ،", "،").replace(" , ", ",").replace(" ، ", "،")
-                                    time.sleep(4)
+                                    time.sleep(1)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
