@@ -126,7 +126,7 @@ VALID_SIZES = {
 # -------------------------------
 # Gemini AI Setup
 # -------------------------------
-GEMINI_API_KEY = "AIzaSyCoIwS0zRQ0CTl4WY8et_QDTOUrIIuB3iA"
+GEMINI_API_KEY = "AIzaSyDaiLTMxeUB9EVB0l3g3laRCJS518WD3As"
 gemini_model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
