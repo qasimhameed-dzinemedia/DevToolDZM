@@ -637,7 +637,7 @@ def call_translation_api_for_origin(user_text, src_lang):
             url = "https://translation-api-772439504210.us-central1.run.app/translate_to_origin"
             payload = {'user_inp': user_text, 'src_lang': src_lang}
             headers = {"X-Api-Key": "E64FUZgN4AGZ8yZr"}
-            response = requests.post(url, data=payload, headers=headers, timeout=15)
+            response = requests.post(url, data=payload, headers=headers, timeout=30)
             response.raise_for_status()
             return response.json().get("translated_text", user_text)
     except Exception as e:
@@ -699,7 +699,17 @@ def translate_text(text, locale):
     src_lang = locale_map.get(target, target.lower())   # fallback = lowercase code
 
     return call_translation_api_for_origin(text, src_lang)
-  
+
+def translate_text_with_gemini(text, locale):
+    if not gemini_model or not text.strip():
+        return text
+    try:
+        prompt = f"{text}\n\nTranslate to {locale}.\n Only provide the translated text."
+        response = gemini_model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        st.error(f"Translation failed: {str(e)}")
+        return text 
 # -------------------------------
 # Main Dashboard
 # -------------------------------
@@ -1186,11 +1196,12 @@ def main():
                         else:
                             with st.spinner("Translating..."):
                                 for loc in locales:
-                                    translated = translate_text(source_text, loc)
+                                    # translated = translate_text(source_text, loc)
+                                    translated = translate_text_with_gemini(source_text, loc)
                                     # NEW: remove ", " → "," only for keywords
                                     if attr == "keywords":
                                         translated = translated.replace(", ", ",").replace(" ،", "،").replace(" , ", ",").replace(" ، ", "،")
-                                    # time.sleep(4)
+                                    time.sleep(4)
                                     st.session_state[f"auto_{attr}_{loc}"] = translated
                             st.success("Translated to all languages!")
 
