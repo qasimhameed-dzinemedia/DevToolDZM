@@ -651,22 +651,19 @@ def translate_text(text, locale):
 
     # ←←← ADD / REPLACE THIS MAPPING ←←←
     locale_map = {
-        # Already handled by the “special” endpoint (oneupgamestudio)
         "RU":      "ru",
         "UK":      "uk",
         "FRFR":    "fr",   # FR-FR → fr
         "FRCA":    "fr",   # FR-CA → fr
         "ESES":    "es",   # ES-ES → es
         "ESMX":    "es",   # ES-MX → es
-
-        # All other languages → your main Cloud Run endpoint
         "ARSA":    "ar",    # Arabic
         "CA":      "ca",    # Catalan
         "CS":      "cs",    # Czech
         "DA":      "da",    # Danish
         "DEDE":    "de",    # German
         "EL":      "el",    # Greek
-        "ENAU":   "en",    # EN-AU (fallback, not needed for translation)
+        "ENAU":    "en",   
         "ENCA":    "en",
         "ENGB":    "en",
         "ENUS":    "en",
@@ -692,7 +689,7 @@ def translate_text(text, locale):
         "TR":      "tr",    # Turkish
         "VI":      "vi",    # Vietnamese
         "ZHHANS":  "zh-CN",    # Simplified Chinese
-        "ZHHANT":  "zh-TW",    # Traditional Chinese (your API probably treats both as "zh")
+        "ZHHANT":  "zh-TW",    # Traditional Chinese
     }
     # ←←← END OF MAPPING ←←←
 
