@@ -1207,22 +1207,54 @@ def main():
                             st.success("All locales translated successfully!")
                             st.rerun()
 
+                # -------------------------------
+                # FILL ALL LOCALES (URL + Keywords)
+                # -------------------------------
                 url_attrs = ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']
-                if attr in url_attrs:
+                fillable_attrs = url_attrs + ['keywords']  # Add keywords to fillable attributes
+
+                if attr in fillable_attrs:
                     if st.button("Fill All Locales"):
                         if not source_text.strip():
-                            st.warning("Please enter a URL first.")
+                            warning_msg = "Please enter a URL first." if attr in url_attrs else "Please enter keywords first."
+                            st.warning(warning_msg)
                         else:
-                            for _, row in data.iterrows():
-                                loc_id = row["localization_id"]
-                                input_key = f"edit_{loc_id}"
+                            with st.spinner(f"Filling all locales with {'URL' if attr in url_attrs else 'keywords'}..."):
+                                for _, row in data.iterrows():
+                                    loc_id = row["localization_id"]
+                                    input_key = f"edit_{loc_id}"
+                                    
+                                    if attr == "keywords":
+                                        # Clean up keywords (remove extra spaces around commas)
+                                        cleaned_text = source_text.strip()
+                                        cleaned_text = re.sub(r',\s*,\s*', ',', cleaned_text)  # Remove double commas
+                                        cleaned_text = re.sub(r'\s*,\s*', ',', cleaned_text)  # Normalize spaces around commas
+                                        st.session_state[input_key] = cleaned_text
+                                    else:
+                                        # For URLs, just use the text as-is
+                                        st.session_state[input_key] = source_text.strip()
 
-                                st.session_state[input_key] = source_text.strip()
-
-                            st.success(f"All {len(locales)} locales filled with the same URL!")
+                            action_msg = "URL" if attr in url_attrs else "keywords"
+                            st.success(f"All {len(locales)} locales filled with the same {action_msg}!")
                             st.rerun()
-                            
+                                            
                 st.markdown("---")
+                # url_attrs = ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']
+                # if attr in url_attrs:
+                #     if st.button("Fill All Locales"):
+                #         if not source_text.strip():
+                #             st.warning("Please enter a URL first.")
+                #         else:
+                #             for _, row in data.iterrows():
+                #                 loc_id = row["localization_id"]
+                #                 input_key = f"edit_{loc_id}"
+
+                #                 st.session_state[input_key] = source_text.strip()
+
+                #             st.success(f"All {len(locales)} locales filled with the same URL!")
+                #             st.rerun()
+                            
+                # st.markdown("---")
 
                 for _, row in data.iterrows():
                     loc_id = row["localization_id"]
