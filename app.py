@@ -1357,9 +1357,23 @@ def main():
             # TAB 2: UPLOAD ALL LOCALES AT ONCE
             # =================================================================
             with tab_upload:
-                locales = get_locales(selected_app_id, selected_store_id)
+                platform = st.session_state.get('platform')
+                if not platform:
+                    st.warning("Please select a platform first.")
+                    st.stop()
+
+                conn = get_db_connection()
+                query = """
+                    SELECT DISTINCT locale 
+                    FROM app_version_localizations 
+                    WHERE app_id = ? AND store_id = ? AND platform = ?
+                    ORDER BY locale
+                """
+                df = pd.read_sql_query(query, conn, params=(selected_app_id, selected_store_id, platform))
+                conn.close()
+                locales = df['locale'].tolist()
                 if not locales:
-                    st.warning("No locales found.")
+                    st.warning(f"No version localizations found for { 'iOS' if platform == 'IOS' else 'macOS' }. Please sync version data first.")
                     st.stop()
 
                 # Store selections
