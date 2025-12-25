@@ -631,7 +631,7 @@ def call_translation_api_for_origin(user_text, src_lang):
             url = "https://translation-api-772439504210.us-central1.run.app/translate_to_origin"
             payload = {'user_inp': user_text, 'src_lang': src_lang}
             headers = {"X-Api-Key": "E64FUZgN4AGZ8yZr"}
-            response = requests.post(url, data=payload, headers=headers, timeout=30)
+            response = requests.post(url, data=payload, headers=headers, timeout=300)
             response.raise_for_status()
             return response.json().get("translated_text", user_text)
     except Exception as e:
