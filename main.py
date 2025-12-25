@@ -214,6 +214,28 @@ def fetch_all_apps(issuer_id, key_id, private_key):
 # -------------------------------
 # Fetch App Info
 # -------------------------------
+# def fetch_app_info(app_id, issuer_id, key_id, private_key, fields=None):
+#     print(f"Fetching app info for app ID {app_id}...")
+#     token = generate_jwt(issuer_id, key_id, private_key)
+#     if not token:
+#         print("JWT generation failed.")
+#         return None
+
+#     params = {}
+#     if fields:
+#         params["fields[appInfos]"] = ",".join(fields)
+
+#     url = f"{BASE_URL}/apps/{app_id}/appInfos"
+#     if params:
+#         url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
+
+#     print(f"GET: {url}")
+#     data = get(url, token)
+#     if data:
+#         count = len(data.get("data", []))
+#         print(f"Fetched {count} app info record(s).")
+#     sync_db_to_github()
+#     return data
 def fetch_app_info(app_id, issuer_id, key_id, private_key, fields=None):
     print(f"Fetching app info for app ID {app_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
@@ -230,13 +252,28 @@ def fetch_app_info(app_id, issuer_id, key_id, private_key, fields=None):
         url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
 
     print(f"GET: {url}")
-    data = get(url, token)
-    if data:
-        count = len(data.get("data", []))
-        print(f"Fetched {count} app info record(s).")
-    sync_db_to_github()
-    return data
+    raw_data = get(url, token)
+    
+    if not raw_data or "data" not in raw_data:
+        print("No data returned.")
+        sync_db_to_github()
+        return None
 
+    # ── Sirf PREPARE_FOR_SUBMISSION wala record filter karo ──
+    prepare_records = [
+        record for record in raw_data["data"]
+        if record.get("attributes", {}).get("appStoreState") == "PREPARE_FOR_SUBMISSION"
+    ]
+
+    if prepare_records:
+        print(f"Found {len(prepare_records)} PREPARE_FOR_SUBMISSION appInfo record(s)")
+        filtered_data = {"data": prepare_records}
+    else:
+        print("No PREPARE_FOR_SUBMISSION appInfo found for this app")
+        filtered_data = {"data": []}  # ya warning raise kar sakte ho
+
+    sync_db_to_github()
+    return filtered_data
 # -------------------------------
 # Fetch App Info Localizations
 # -------------------------------
