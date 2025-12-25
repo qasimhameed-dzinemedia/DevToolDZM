@@ -20,7 +20,8 @@ from main import (
     fetch_and_store_single_app,
     upload_screenshots_dashboard,
     fetch_screenshots,
-    sync_db_to_github
+    sync_db_to_github,
+    AppleAPIError
 )
 
 FIELD_LIMITS = {
@@ -134,6 +135,24 @@ if GEMINI_API_KEY:
 # -------------------------------
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+# -------------------------------
+# Error Handling Helper
+# -------------------------------
+def show_apple_error(e: AppleAPIError):
+    """Displays detailed Apple API error in Streamlit."""
+    st.error(f"🍎 Apple API Error: {str(e)}")
+    if e.errors:
+        with st.expander("Detailed Error Info"):
+            for err in e.errors:
+                st.write(f"**Title**: {err.get('title')}")
+                st.write(f"**Detail**: {err.get('detail')}")
+                st.write(f"**Code**: {err.get('code')}")
+                st.write(f"**Status**: {err.get('status')}")
+                st.divider()
+    if e.traceback_str:
+        with st.expander("Stack Trace (Traceback)"):
+            st.code(e.traceback_str, language="python")
 
 # -------------------------------
 # Database Connection
@@ -495,107 +514,116 @@ def update_db_attribute(table, localization_id, attribute, value, store_id):
 # -------------------------------
 def sync_attribute_data(attr, app_id, store_id, issuer_id, key_id, private_key, platform=None):
     print(f"[SYNC ATTR] Syncing '{attr}' for app {app_id}, platform: {platform}")
-    success = True
-
-    if attr in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
-        # App Info Attributes (no platform)
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM app_info_localizations WHERE app_id = ? AND store_id = ?", (app_id, store_id))
-            conn.commit()
-            print(f"[SYNC ATTR] Deleted old app_info_localizations for {app_id}")
-
-        app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
-        if app_info_data and "data" in app_info_data and app_info_data["data"]:
-            app_info_index = 1 if len(app_info_data["data"]) > 1 else 0
-            app_info_id = app_info_data["data"][app_info_index].get("id")
-            loc_data = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
-            if loc_data and "data" in loc_data:
-                with get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    for loc in loc_data["data"]:
-                        cursor.execute(
-                            """
-                            INSERT OR REPLACE INTO app_info_localizations 
-                            (localization_id, app_id, store_id, locale, name, subtitle, privacy_policy_url, privacy_choices_url) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                loc["id"],
-                                app_id,
-                                store_id,
-                                loc["attributes"].get("locale"),
-                                loc["attributes"].get("name"),
-                                loc["attributes"].get("subtitle"),
-                                loc["attributes"].get("privacyPolicyUrl"),
-                                loc["attributes"].get("privacyChoicesUrl")
-                            )
-                        )
-                    conn.commit()
-                print(f"[SYNC ATTR] Inserted new app_info_localizations for {app_id}")
-            else:
-                success = False
-        else:
-            success = False
-
-    elif attr in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']:
-        # Version Attributes (platform-specific)
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM app_version_localizations WHERE app_id = ? AND store_id = ? AND platform = ?", (app_id, store_id, platform))
-            cursor.execute("DELETE FROM app_versions WHERE app_id = ? AND store_id = ? AND platform = ?", (app_id, store_id, platform))
-            conn.commit()
-            print(f"[SYNC ATTR] Deleted old app_versions & localizations for {app_id} ({platform})")
-
-        versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key, platform=platform)
-        if versions_data and "data" in versions_data:
+    try:
+        if attr in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
+            # App Info Attributes (no platform)
             with get_db_connection() as conn:
                 cursor = conn.cursor()
-                for version in versions_data["data"]:
-                    version_id = version["id"]
-                    plat = version["attributes"].get("platform")
-                    cursor.execute(
-                        "INSERT OR REPLACE INTO app_versions (version_id, app_id, store_id, platform) VALUES (?, ?, ?, ?)",
-                        (version_id, app_id, store_id, plat)
-                    )
+                cursor.execute("DELETE FROM app_info_localizations WHERE app_id = ? AND store_id = ?", (app_id, store_id))
+                conn.commit()
+                print(f"[SYNC ATTR] Deleted old app_info_localizations for {app_id}")
 
-                    loc_data = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
-                    if loc_data and "data" in loc_data:
+            app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
+            if app_info_data and "data" in app_info_data and app_info_data["data"]:
+                app_info_index = 1 if len(app_info_data["data"]) > 1 else 0
+                app_info_id = app_info_data["data"][app_info_index].get("id")
+                loc_data = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
+                if loc_data and "data" in loc_data:
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
                         for loc in loc_data["data"]:
                             cursor.execute(
                                 """
-                                INSERT OR REPLACE INTO app_version_localizations 
-                                (localization_id, version_id, app_id, store_id, locale, description, keywords, 
-                                marketing_url, promotional_text, support_url, whats_new, platform) 
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                INSERT OR REPLACE INTO app_info_localizations 
+                                (localization_id, app_id, store_id, locale, name, subtitle, privacy_policy_url, privacy_choices_url) 
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 (
                                     loc["id"],
-                                    version_id,
                                     app_id,
                                     store_id,
                                     loc["attributes"].get("locale"),
-                                    loc["attributes"].get("description"),
-                                    loc["attributes"].get("keywords"),
-                                    loc["attributes"].get("marketingUrl"),
-                                    loc["attributes"].get("promotionalText"),
-                                    loc["attributes"].get("supportUrl"),
-                                    loc["attributes"].get("whatsNew"),
-                                    plat
+                                    loc["attributes"].get("name"),
+                                    loc["attributes"].get("subtitle"),
+                                    loc["attributes"].get("privacyPolicyUrl"),
+                                    loc["attributes"].get("privacyChoicesUrl")
                                 )
                             )
                         conn.commit()
-                    else:
-                        success = False
-                print(f"[SYNC ATTR] Inserted new app_versions & localizations for {app_id} ({platform})")
-        else:
-            success = False
+                    print(f"[SYNC ATTR] Inserted new app_info_localizations for {app_id}")
+                    return True
+                else:
+                    return False
+            else:
+                return False
 
-    elif attr == 'screenshots':
-        # Screenshots (already handles delete in fetch_screenshots)
-        fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform=platform)
+        elif attr in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']:
+            # Version Attributes (platform-specific)
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM app_version_localizations WHERE app_id = ? AND store_id = ? AND platform = ?", (app_id, store_id, platform))
+                cursor.execute("DELETE FROM app_versions WHERE app_id = ? AND store_id = ? AND platform = ?", (app_id, store_id, platform))
+                conn.commit()
+                print(f"[SYNC ATTR] Deleted old app_versions & localizations for {app_id} ({platform})")
 
-    return success
+            versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key, platform=platform)
+            if versions_data and "data" in versions_data:
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    for version in versions_data["data"]:
+                        version_id = version["id"]
+                        plat = version["attributes"].get("platform")
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO app_versions (version_id, app_id, store_id, platform) VALUES (?, ?, ?, ?)",
+                            (version_id, app_id, store_id, plat)
+                        )
+
+                        loc_data = fetch_app_store_version_localizations(version_id, issuer_id, key_id, private_key)
+                        if loc_data and "data" in loc_data:
+                            for loc in loc_data["data"]:
+                                cursor.execute(
+                                    """
+                                    INSERT OR REPLACE INTO app_version_localizations 
+                                    (localization_id, version_id, app_id, store_id, locale, description, keywords, 
+                                    marketing_url, promotional_text, support_url, whats_new, platform) 
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    """,
+                                    (
+                                        loc["id"],
+                                        version_id,
+                                        app_id,
+                                        store_id,
+                                        loc["attributes"].get("locale"),
+                                        loc["attributes"].get("description"),
+                                        loc["attributes"].get("keywords"),
+                                        loc["attributes"].get("marketingUrl"),
+                                        loc["attributes"].get("promotionalText"),
+                                        loc["attributes"].get("supportUrl"),
+                                        loc["attributes"].get("whatsNew"),
+                                        plat
+                                    )
+                                )
+                            conn.commit()
+                        else:
+                            return False
+                    print(f"[SYNC ATTR] Inserted new app_versions & localizations for {app_id} ({platform})")
+                    return True
+            else:
+                return False
+
+        elif attr == 'screenshots':
+            # Screenshots (already handles delete in fetch_screenshots)
+            fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform=platform)
+            return True
+
+    except AppleAPIError as e:
+        show_apple_error(e)
+        return False
+    except Exception as e:
+        st.error(f"Unexpected error during sync: {str(e)}")
+        return False
+
+    return False
 
 def get_attribute_data(attribute, app_id, store_id, platform=None):
     if attribute in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
@@ -749,14 +777,19 @@ def main():
                 if name and issuer_id_input and key_id_input and private_key_input:
                     store_id = add_store(name, issuer_id_input, key_id_input, private_key_input)
                     with st.spinner("Fetching..."):
-                        success = fetch_and_store_apps(store_id, issuer_id_input, key_id_input, private_key_input)
-                        if success:
-                            st.success("Store added and data fetched!")
-                            st.session_state.selected_store_id = store_id
-                            st.session_state.selected_app_id = None
-                            st.session_state.last_store_name = name
-                        else:
-                            st.error("Store added, but data fetch failed.")
+                        try:
+                            success = fetch_and_store_apps(store_id, issuer_id_input, key_id_input, private_key_input)
+                            if success:
+                                st.success("Store added and data fetched!")
+                                st.session_state.selected_store_id = store_id
+                                st.session_state.selected_app_id = None
+                                st.session_state.last_store_name = name
+                            else:
+                                st.error("Store added, but data fetch failed.")
+                        except AppleAPIError as e:
+                            show_apple_error(e)
+                        except Exception as e:
+                            st.error(f"Unexpected error: {str(e)}")
                     sync_db_to_github()
                     st.rerun()
 
@@ -898,11 +931,16 @@ def main():
 
     if st.sidebar.button("🔄 Fetch Data for Store"):
         with st.spinner(f"Fetching {selected_store_name}"):
-            success = fetch_and_store_apps(selected_store_id, issuer_id, key_id, private_key)
-            if success:
-                st.success("Data fetched!")
-            else:
-                st.error("Fetch failed.")
+            try:
+                success = fetch_and_store_apps(selected_store_id, issuer_id, key_id, private_key)
+                if success:
+                    st.success("Data fetched!")
+                else:
+                    st.error("Fetch failed.")
+            except AppleAPIError as e:
+                show_apple_error(e)
+            except Exception as e:
+                st.error(f"Unexpected error: {str(e)}")
         sync_db_to_github()
         st.rerun()
 
@@ -987,11 +1025,16 @@ def main():
     with col_refresh:
         if st.button("Refresh"):
             with st.spinner("Refreshing…"):
-                success = fetch_and_store_single_app(selected_app_id, selected_store_id, issuer_id, key_id, private_key)
-                if success:
-                    st.success("Refreshed!")
-                else:
-                    st.error("Refresh failed.")
+                try:
+                    success = fetch_and_store_single_app(selected_app_id, selected_store_id, issuer_id, key_id, private_key)
+                    if success:
+                        st.success("Refreshed!")
+                    else:
+                        st.error("Refresh failed.")
+                except AppleAPIError as e:
+                    show_apple_error(e)
+                except Exception as e:
+                    st.error(f"Unexpected error: {str(e)}")
             sync_db_to_github()
             st.rerun()
     with col_search:
@@ -1292,8 +1335,16 @@ def main():
                             success = True
                             for loc_id, val in changes.items():
                                 func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
-                                if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
+                                try:
+                                    if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
+                                        success = False
+                                except AppleAPIError as e:
+                                    show_apple_error(e)
                                     success = False
+                                except Exception as e:
+                                    st.error(f"Unexpected error: {str(e)}")
+                                    success = False
+                            
                             if success:
                                 st.success("Saved successfully!")
 
@@ -1435,19 +1486,26 @@ def main():
                         with st.spinner(f"Uploading {sum(len(d['files']) for d in upload_data)} screenshots..."):
                             all_success = True
                             for item in upload_data:
-                                success = upload_screenshots_dashboard(
-                                    issuer_id=issuer_id,
-                                    key_id=key_id,
-                                    private_key=private_key,
-                                    app_id=selected_app_id,
-                                    locale=item["locale"],
-                                    platform=platform,
-                                    display_type=item["display_type"],
-                                    action=item["action"],
-                                    files=[(f[0], f[1], f[2]) for f in item["files"]]
-                                )
-                                if not success:
-                                    st.error(f"Failed → {item['locale']} – {item['display_type']}")
+                                try:
+                                    success = upload_screenshots_dashboard(
+                                        issuer_id=issuer_id,
+                                        key_id=key_id,
+                                        private_key=private_key,
+                                        app_id=selected_app_id,
+                                        locale=item["locale"],
+                                        platform=platform,
+                                        display_type=item["display_type"],
+                                        action=item["action"],
+                                        files=[(f[0], f[1], f[2]) for f in item["files"]]
+                                    )
+                                    if not success:
+                                        st.error(f"Failed → {item['locale']} – {item['display_type']}")
+                                        all_success = False
+                                except AppleAPIError as e:
+                                    show_apple_error(e)
+                                    all_success = False
+                                except Exception as e:
+                                    st.error(f"Unexpected error during upload: {str(e)}")
                                     all_success = False
                                 else:
                                     st.success(f"Uploaded → {item['locale']} – {item['display_type']} ({len(item['files'])})")
