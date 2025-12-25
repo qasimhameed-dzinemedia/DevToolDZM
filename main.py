@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 import base64
 import os
+import traceback
 
 def load_db_from_github():
     """Downloads the latest database file from GitHub repo."""
@@ -36,8 +37,6 @@ def load_db_from_github():
             print("✅ Loaded DB via Base64 fallback.")
     else:
         print(f"⚠️ Could not load DB from GitHub: {res.text}")
-
-
 
 def sync_db_to_github():
     """Uploads or updates the latest database file to GitHub repo."""
@@ -131,6 +130,24 @@ def get_db_connection():
             conn.close()
 
 # -------------------------------
+# Custom Exceptions
+# -------------------------------
+class AppleAPIError(Exception):
+    """Custom exception for Apple API errors."""
+    def __init__(self, message, errors=None, status_code=None, traceback_str=None):
+        super().__init__(message)
+        self.errors = errors or []
+        self.status_code = status_code
+        self.traceback_str = traceback_str
+
+    def __str__(self):
+        base_msg = super().__str__()
+        if self.errors:
+            error_details = "; ".join([f"{e.get('title')}: {e.get('detail')}" for e in self.errors if e.get('detail')])
+            return f"{base_msg} (Details: {error_details})"
+        return base_msg
+
+# -------------------------------
 # Generate JWT Token
 # -------------------------------
 def generate_jwt(issuer_id, key_id, private_key):
@@ -147,7 +164,8 @@ def generate_jwt(issuer_id, key_id, private_key):
         print("JWT token generated.")
         return token
     except Exception as e:
-        print(f"Error generating JWT: {e}")
+        tb = traceback.format_exc()
+        print(f"Error generating JWT: {e}\n{tb}")
         return None
 
 # -------------------------------
@@ -158,13 +176,26 @@ def get(url, token):
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     try:
         response = requests.get(url, headers=headers)
-        response.raise_for_status()
+        if response.status_code >= 400:
+            tb = traceback.format_exc()
+            error_details = []
+            try:
+                error_details = response.json().get("errors", [])
+            except:
+                pass
+            raise AppleAPIError(f"GET Request failed for {url} with status {response.status_code}", 
+                                errors=error_details, status_code=response.status_code, traceback_str=tb)
+        
         print(f"Data fetched from {url}.")
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Failed to fetch data from {url}: {e}")
-        print(f"Response: {response.text}")
-        return None
+        tb = traceback.format_exc()
+        print(f"Failed to fetch data from {url}: {e}\n{tb}")
+        raise AppleAPIError(f"HTTP Error: {str(e)}", status_code=getattr(e.response, 'status_code', None), traceback_str=tb)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"Unexpected error fetching data from {url}: {e}\n{tb}")
+        raise
 
 # -------------------------------
 # Generic PATCH Helper
@@ -178,13 +209,26 @@ def patch(url, token, payload):
     }
     try:
         response = requests.patch(url, json=payload, headers=headers)
-        response.raise_for_status()
+        if response.status_code >= 400:
+            tb = traceback.format_exc()
+            error_details = []
+            try:
+                error_details = response.json().get("errors", [])
+            except:
+                pass
+            raise AppleAPIError(f"PATCH Request failed for {url} with status {response.status_code}", 
+                                errors=error_details, status_code=response.status_code, traceback_str=tb)
+        
         print(f"Data patched to {url}.")
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Failed to patch data to {url}: {e}")
-        print(f"Response: {response.text}")
-        return None
+        tb = traceback.format_exc()
+        print(f"Failed to patch data to {url}: {e}\n{tb}")
+        raise AppleAPIError(f"HTTP Error: {str(e)}", status_code=getattr(e.response, 'status_code', None), traceback_str=tb)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"Unexpected error patching data to {url}: {e}\n{tb}")
+        raise
 
 # -------------------------------
 # Fetch All Apps
@@ -714,16 +758,22 @@ def upload_screenshots_dashboard(issuer_id, key_id, private_key, app_id, locale,
         return True
 
     except requests.exceptions.RequestException as e:
-        print(f"[HTTP ERROR] {e}")
+        tb = traceback.format_exc()
+        print(f"[HTTP ERROR] {e}\n{tb}")
+        error_details = []
         if e.response is not None:
             try:
-                print(e.response.json())
+                error_details = e.response.json().get("errors", [])
             except:
-                print(e.response.text)
-        return False
+                pass
+        raise AppleAPIError(f"HTTP Error during screenshot upload: {str(e)}", 
+                            errors=error_details, 
+                            status_code=getattr(e.response, 'status_code', None), 
+                            traceback_str=tb)
     except Exception as e:
-        print(f"[EXCEPTION] {e}")
-        return False
+        tb = traceback.format_exc()
+        print(f"[EXCEPTION] {e}\n{tb}")
+        raise AppleAPIError(f"Unexpected error during screenshot upload: {str(e)}", traceback_str=tb)
 
 # -------------------------------
 # Process Single App Data (UPDATED: Delete old data first)
