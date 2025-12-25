@@ -213,29 +213,62 @@ def fetch_all_apps(issuer_id, key_id, private_key):
 
 # -------------------------------
 # Fetch App Info
-# -------------------------------
-def fetch_app_info(app_id, issuer_id, key_id, private_key, fields=None):
+# # -------------------------------
+# def fetch_app_info(app_id, issuer_id, key_id, private_key, fields=None):
+#     print(f"Fetching app info for app ID {app_id}...")
+#     token = generate_jwt(issuer_id, key_id, private_key)
+#     if not token:
+#         print("JWT generation failed.")
+#         return None
+
+#     params = {}
+#     if fields:
+#         params["fields[appInfos]"] = ",".join(fields)
+
+#     url = f"{BASE_URL}/apps/{app_id}/appInfos"
+#     if params:
+#         url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
+
+#     print(f"GET: {url}")
+#     data = get(url, token)
+#     if data:
+#         count = len(data.get("data", []))
+#         print(f"Fetched {count} app info record(s).")
+#     sync_db_to_github()
+#     return data
+
+def fetch_app_info(app_id, issuer_id, key_id, private_key):
+    """
+    Fetch appInfos but RETURN ONLY the one in PREPARE_FOR_SUBMISSION state.
+    If none found → returns empty data (or you can raise/log warning)
+    """
     print(f"Fetching app info for app ID {app_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
         print("JWT generation failed.")
         return None
 
-    params = {}
-    if fields:
-        params["fields[appInfos]"] = ",".join(fields)
-
     url = f"{BASE_URL}/apps/{app_id}/appInfos"
-    if params:
-        url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
-
     print(f"GET: {url}")
-    data = get(url, token)
-    if data:
-        count = len(data.get("data", []))
-        print(f"Fetched {count} app info record(s).")
-    sync_db_to_github()
-    return data
+    
+    raw_data = get(url, token)
+    if not raw_data or "data" not in raw_data:
+        print("No appInfos returned.")
+        return {"data": []}
+
+    # Sirf PREPARE_FOR_SUBMISSION filter karo
+    prepare_app_infos = [
+        info for info in raw_data["data"]
+        if info.get("attributes", {}).get("appStoreState") == "PREPARE_FOR_SUBMISSION"
+    ]
+
+    if not prepare_app_infos:
+        print(f"⚠️ No appInfo found in PREPARE_FOR_SUBMISSION for app {app_id}")
+        # Optional: yahan log kar sakte ho ya fallback logic daal sakte ho
+        return {"data": []}
+
+    print(f"✅ Found {len(prepare_app_infos)} PREPARE_FOR_SUBMISSION appInfo record(s)")
+    return {"data": prepare_app_infos, "meta": raw_data.get("meta", {})}
 
 # -------------------------------
 # Fetch App Info Localizations
@@ -717,30 +750,75 @@ def process_app(app, store_id, issuer_id, key_id, private_key):
         conn.commit()
 
     # === STEP 3: Fetch & Insert App Info (Delete + Insert) ===
+    # app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
+    # if app_info_data and "data" in app_info_data and app_info_data["data"]:
+    #     app_info_index = 1 if len(app_info_data["data"]) > 1 else 0
+    #     app_info_id = app_info_data["data"][app_info_index].get("id")
+    #     app_info_localizations = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
+    #     time.sleep(REQUEST_DELAY)
+
+    #     if app_info_localizations and "data" in app_info_localizations:
+    #         with get_db_connection() as conn:
+    #             cursor = conn.cursor()
+    #             for loc in app_info_localizations["data"]:
+    #                 cursor.execute(
+    #                     """
+    #                     INSERT OR REPLACE INTO app_info_localizations 
+    #                     (localization_id, app_id, store_id, locale, name, subtitle, privacy_policy_url, privacy_choices_url) 
+    #                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    #                     """,
+    #                     (
+    #                         loc["id"], app_id, store_id, loc["attributes"].get("locale"),
+    #                         loc["attributes"].get("name"), loc["attributes"].get("subtitle"),
+    #                         loc["attributes"].get("privacyPolicyUrl"), loc["attributes"].get("privacyChoicesUrl")
+    #                     )
+    #                 )
+    #             conn.commit()
+    # === STEP 3: Fetch & Insert App Info (sirf Prepare for Submission) ===
     app_info_data = fetch_app_info(app_id, issuer_id, key_id, private_key)
+
     if app_info_data and "data" in app_info_data and app_info_data["data"]:
-        app_info_index = 1 if len(app_info_data["data"]) > 1 else 0
-        app_info_id = app_info_data["data"][app_info_index].get("id")
-        app_info_localizations = fetch_app_info_localizations(app_info_id, issuer_id, key_id, private_key)
+        # Normally ek hi prepare record hota hai
+        prepare_app_info = app_info_data["data"][0]
+        app_info_id = prepare_app_info["id"]
+
+        # Localizations fetch karo (same as before)
+        app_info_localizations = fetch_app_info_localizations(
+            app_info_id, issuer_id, key_id, private_key
+        )
         time.sleep(REQUEST_DELAY)
 
         if app_info_localizations and "data" in app_info_localizations:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
+                
+                # Purana prepare data delete (safety ke liye)
+                cursor.execute(
+                    "DELETE FROM app_info_localizations WHERE app_id = ? AND store_id = ?",
+                    (app_id, store_id)
+                )
+                
                 for loc in app_info_localizations["data"]:
                     cursor.execute(
                         """
                         INSERT OR REPLACE INTO app_info_localizations 
-                        (localization_id, app_id, store_id, locale, name, subtitle, privacy_policy_url, privacy_choices_url) 
+                        (localization_id, app_id, store_id, locale, name, subtitle, 
+                        privacy_policy_url, privacy_choices_url, 
+                        -- aur jo fields chahiye jaise marketing_url waghera)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             loc["id"], app_id, store_id, loc["attributes"].get("locale"),
                             loc["attributes"].get("name"), loc["attributes"].get("subtitle"),
-                            loc["attributes"].get("privacyPolicyUrl"), loc["attributes"].get("privacyChoicesUrl")
+                            loc["attributes"].get("privacyPolicyUrl"),
+                            loc["attributes"].get("privacyChoicesUrl")
+                            # add more if needed
                         )
                     )
                 conn.commit()
+                print(f"Stored {len(app_info_localizations['data'])} prepare localizations")
+    else:
+        print("No prepare app info available → skipping localization insert")
 
     # === STEP 4: Fetch & Insert Versions + Localizations (Delete + Insert) ===
     versions_data = fetch_app_store_versions(app_id, issuer_id, key_id, private_key)
