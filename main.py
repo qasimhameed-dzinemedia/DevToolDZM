@@ -599,7 +599,7 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
         # INSERT only new
         for shot in all_screenshots:
             cursor.execute("""
-                INSERT INTO app_screenshots 
+                INSERT OR IGNORE INTO app_screenshots 
                 (id, app_id, store_id, localization_id, locale, display_type, url, width, height, platform)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
