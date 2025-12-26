@@ -475,10 +475,9 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
     """
     Fetches ALL screenshots for an app (iOS/macOS) and EXACTLY mirrors API to DB.
     - Deletes old screenshots (for platform or all)
-    - Inserts only latest from API
-    - Shows API response in popup
+    - Inserts only latest from API with INSERT OR IGNORE to avoid duplicate ID crash
     """
-    print(f"[Screenshots] Starting fetch for app {app_id}, platform: {platform}")
+    print(f"[Screenshots] Starting fetch for app {app_id}, platform: {platform or 'ALL'}")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
         st.error("JWT generation failed for screenshots.")
@@ -495,8 +494,9 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
         return []
 
     all_screenshots = []
+    seen_ids = set()  # For debugging duplicate IDs from API
 
-    def process_localization(loc, platform, token):
+    def process_localization(loc, platform_name, token):
         locale = loc['attributes']['locale']
         sets_url = loc['relationships']['appScreenshotSets']['links']['related']
         sets_data = get(sets_url, token)
@@ -512,39 +512,26 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
                 continue
 
             for shot in shots_data['data']:
-                asset = shot['attributes'].get('imageAsset')
-                if not asset or not isinstance(asset, dict):
-                    continue
-
-                template = asset.get('templateUrl')
-                width = asset.get('width')
-                height = asset.get('height')
-                if not template or not width or not height:
-                    continue
-
-                try:
-                    url = template.format(w=width, h=height, f='jpg')
-                except (KeyError, ValueError):
-                    continue
-
-                apple_shot_id = shot['id']
-                shot_id = f"{app_id}_{apple_shot_id}"
-
-                locale_shots.append({
-                    'id': shot_id,
+                shot_info = {
+                    'id': shot['id'],
                     'app_id': app_id,
                     'store_id': store_id,
                     'localization_id': loc['id'],
                     'locale': locale,
                     'display_type': disp,
-                    'url': url,
-                    'width': width,
-                    'height': height,
-                    'platform': platform
-                })
+                    'url': shot['attributes']['url'],
+                    'width': shot['attributes']['imageAsset']['width'],
+                    'height': shot['attributes']['imageAsset']['height'],
+                    'platform': platform_name
+                }
+                sid = shot['id']
+                if sid in seen_ids:
+                    print(f"[WARNING] Duplicate screenshot ID from API: {sid} (locale: {locale}, display: {disp})")
+                seen_ids.add(sid)
+                locale_shots.append(shot_info)
         return locale_shots
 
-    # Parallel fetch
+    # Parallel processing for speed
     with ThreadPoolExecutor(max_workers=6) as executor:
         futures = []
         for version in versions_data['data']:
@@ -566,7 +553,9 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
             except Exception as e:
                 print(f"[Screenshots] Thread error: {e}")
 
-    # --- EXACT DB SYNC: DELETE OLD + INSERT NEW ---
+    print(f"[Screenshots] Total screenshots fetched from API: {len(all_screenshots)}")
+
+    # --- EXACT DB SYNC: DELETE OLD + INSERT NEW (with duplicate protection) ---
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -584,7 +573,7 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
             )
         """)
 
-        # DELETE old data (platform-specific or all)
+        # DELETE old data
         if platform:
             cursor.execute(
                 "DELETE FROM app_screenshots WHERE app_id = ? AND store_id = ? AND platform = ?",
@@ -596,27 +585,38 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
                 (app_id, store_id)
             )
 
-        # INSERT only new
+        # INSERT with OR IGNORE to prevent crash on duplicate IDs
+        inserted_count = 0
         for shot in all_screenshots:
-            cursor.execute("""
-                INSERT OR IGNORE INTO app_screenshots 
-                (id, app_id, store_id, localization_id, locale, display_type, url, width, height, platform)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                shot['id'], shot['app_id'], shot['store_id'], shot['localization_id'],
-                shot['locale'], shot['display_type'], shot['url'], shot['width'], shot['height'], shot['platform']
-            ))
+            try:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO app_screenshots 
+                    (id, app_id, store_id, localization_id, locale, display_type, url, width, height, platform)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    shot['id'], shot['app_id'], shot['store_id'], shot['localization_id'],
+                    shot['locale'], shot['display_type'], shot['url'], shot['width'], shot['height'], shot['platform']
+                ))
+                if cursor.rowcount > 0:
+                    inserted_count += 1
+            except Exception as e:
+                print(f"[ERROR] Failed to insert screenshot {shot['id']}: {e}")
+
         conn.commit()
 
     # --- UI FEEDBACK ---
     count = len(all_screenshots)
+    unique_inserted = inserted_count
     if count > 0:
-        st.success(f"Fetched {count} screenshot{'' if count == 1 else 's'} ({platform or 'all platforms'})")
+        msg = f"Fetched {count} screenshot(s) from API, inserted {unique_inserted} unique ({platform or 'all platforms'})"
+        if count > unique_inserted:
+            msg += f" ({count - unique_inserted} duplicates ignored)"
+        st.success(msg)
     else:
         st.info(f"No screenshots found for {platform or 'any platform'}.")
 
     with st.expander(f"API Response: Screenshots ({platform or 'all'})", expanded=False):
-        st.json(all_screenshots, expanded=False)
+        st.json(all_screenshots)
 
     sync_db_to_github()
     return all_screenshots
