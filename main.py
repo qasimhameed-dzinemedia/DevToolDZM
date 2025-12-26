@@ -480,7 +480,7 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
     print(f"[Screenshots] Starting fetch for app {app_id}, platform: {platform or 'ALL'}")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
-        st.error("JWT generation failed for screenshots.")
+        print("JWT generation failed for screenshots.")
         return []
 
     # Step 1: Get versions (filter by platform if needed)
@@ -490,7 +490,7 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
         fields=['platform', 'appStoreVersionLocalizations']
     )
     if not versions_data or 'data' not in versions_data:
-        st.warning(f"No {platform or 'any'} version found in PREPARE_FOR_SUBMISSION.")
+        print(f"No {platform or 'any'} version found in PREPARE_FOR_SUBMISSION.")
         return []
 
     all_screenshots = []
@@ -512,6 +512,18 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
                 continue
 
             for shot in shots_data['data']:
+                attributes = shot.get('attributes', {})
+                image_asset = attributes.get('imageAsset', {})
+                
+                # Create URL from template
+                url_template = image_asset.get('templateUrl', '')
+                url = url_template
+                if url:
+                    url = url.replace("{w}", str(image_asset.get("width", 0)))
+                    url = url.replace("{h}", str(image_asset.get("height", 0)))
+                    if "{f}" in url:
+                        url = url.replace("{f}", "png")  # or 'jpg' based on your needs
+
                 shot_info = {
                     'id': shot['id'],
                     'app_id': app_id,
@@ -519,9 +531,9 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
                     'localization_id': loc['id'],
                     'locale': locale,
                     'display_type': disp,
-                    'url': shot['attributes']['url'],
-                    'width': shot['attributes']['imageAsset']['width'],
-                    'height': shot['attributes']['imageAsset']['height'],
+                    'url': url,
+                    'width': image_asset.get('width', 0),
+                    'height': image_asset.get('height', 0),
                     'platform': platform_name
                 }
                 sid = shot['id']
@@ -611,12 +623,9 @@ def fetch_screenshots(app_id, store_id, issuer_id, key_id, private_key, platform
         msg = f"Fetched {count} screenshot(s) from API, inserted {unique_inserted} unique ({platform or 'all platforms'})"
         if count > unique_inserted:
             msg += f" ({count - unique_inserted} duplicates ignored)"
-        st.success(msg)
+        print(msg)
     else:
-        st.info(f"No screenshots found for {platform or 'any platform'}.")
-
-    with st.expander(f"API Response: Screenshots ({platform or 'all'})", expanded=False):
-        st.json(all_screenshots)
+        print(f"No screenshots found for {platform or 'any platform'}.")
 
     sync_db_to_github()
     return all_screenshots
