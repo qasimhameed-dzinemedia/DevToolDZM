@@ -255,6 +255,28 @@ def fetch_all_apps(issuer_id, key_id, private_key):
     sync_db_to_github()
     return apps
 
+def get_app_store_state(app_id, issuer_id, key_id, private_key):
+    """Fetches the current appStoreState for the app without filtering."""
+    print(f"Fetching app store state for app ID {app_id}...")
+    token = generate_jwt(issuer_id, key_id, private_key)
+    if not token:
+        print("JWT generation failed.")
+        return None
+
+    url = f"{BASE_URL}/apps/{app_id}/appInfos"
+    raw_data = get(url, token)
+    
+    if not raw_data or "data" not in raw_data:
+        print("No data returned.")
+        return None
+
+    if raw_data["data"]:
+        # Select the same index as in fetch_app_info (1 if >1 records, else 0)
+        index = 1 if len(raw_data["data"]) > 1 else 0
+        return raw_data["data"][index].get("attributes", {}).get("appStoreState")
+    
+    return None
+
 # -------------------------------
 # Fetch App Info
 # -------------------------------
