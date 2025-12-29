@@ -970,15 +970,15 @@ def main():
         on_change=on_app_change
     )
     selected_app_id = st.session_state.selected_app_id = app_options[selected_app_name]
-    # Fetch credentials for the selected store
-    issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
+    # # Fetch credentials for the selected store
+    # issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
 
-    # Fetch the current appStoreState
-    app_store_state = get_app_store_state(selected_app_id, issuer_id, key_id, private_key)
+    # # Fetch the current appStoreState
+    # app_store_state = get_app_store_state(selected_app_id, issuer_id, key_id, private_key)
 
-    if app_store_state != "PREPARE_FOR_SUBMISSION":
-        st.warning(f"This app is in '{app_store_state}' state. It must be in 'PREPARE_FOR_SUBMISSION' state to fetch details or edit.")
-        st.stop()  # Stop rendering the rest of the UI (no data shown)
+    # if app_store_state != "PREPARE_FOR_SUBMISSION":
+    #     st.warning(f"This app is in '{app_store_state}' state. It must be in 'PREPARE_FOR_SUBMISSION' state to fetch details or edit.")
+    #     st.stop()  # Stop rendering the rest of the UI (no data shown)
     # ------------------------------------------------------------------
     # Localization Coverage
     # ------------------------------------------------------------------
@@ -1044,8 +1044,17 @@ def main():
                     show_apple_error(e)
                 except Exception as e:
                     st.error(f"Unexpected error: {str(e)}")
-            sync_db_to_github()
-            st.rerun()
+                sync_db_to_github()
+            # 2. Force re-check state after refresh
+            app_store_state = get_app_store_state(selected_app_id, issuer_id, key_id, private_key)
+            
+            # State message dikhaye (chahe sahi ho ya galat)
+            if app_store_state == "PREPARE_FOR_SUBMISSION":
+                st.success(f"App is now in **PREPARE_FOR_SUBMISSION** state! You can fetch or edit now.")
+            else:
+                st.warning(f"Still in '{app_store_state}' state. Needs to be PREPARE_FOR_SUBMISSION to edit or fetch data.")
+            
+            st.rerun()  # Important: UI ko fresh karne ke liye
     with col_search:
         if st.button("Search iTunes"):
             st.session_state['show_itunes_search'] = True
