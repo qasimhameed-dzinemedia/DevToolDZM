@@ -970,15 +970,15 @@ def main():
         on_change=on_app_change
     )
     selected_app_id = st.session_state.selected_app_id = app_options[selected_app_name]
-    # # Fetch credentials for the selected store
     # issuer_id, key_id, private_key = get_store_credentials(selected_store_id)
 
-    # # Fetch the current appStoreState
-    # app_store_state = get_app_store_state(selected_app_id, issuer_id, key_id, private_key)
+    # # State ko session mein rakho taake bar bar fetch na karna pade
+    # if 'app_store_state' not in st.session_state:
+    #     st.session_state.app_store_state = get_app_store_state(
+    #         selected_app_id, issuer_id, key_id, private_key
+    #     )
 
-    # if app_store_state != "PREPARE_FOR_SUBMISSION":
-    #     st.warning(f"This app is in '{app_store_state}' state. It must be in 'PREPARE_FOR_SUBMISSION' state to fetch details or edit.")
-    #     st.stop()  # Stop rendering the rest of the UI (no data shown)
+    # app_store_state = st.session_state.app_store_state
     # ------------------------------------------------------------------
     # Localization Coverage
     # ------------------------------------------------------------------
@@ -1031,33 +1031,48 @@ def main():
     col_title, col_refresh, col_search = st.columns([3, 1, 1])
     with col_title:
         st.markdown(f"### {selected_app_name}")
+
     with col_refresh:
-        if st.button("Refresh"):
-            with st.spinner("Refreshing…"):
+        if st.button("🔄 Refresh App"):
+            with st.spinner("Refreshing data & state..."):
+                # Data refresh
                 try:
-                    success = fetch_and_store_single_app(selected_app_id, selected_store_id, issuer_id, key_id, private_key)
+                    success = fetch_and_store_single_app(
+                        selected_app_id, selected_store_id, issuer_id, key_id, private_key
+                    )
                     if success:
-                        st.success("Refreshed!")
+                        st.success("Data refreshed!")
                     else:
                         st.error("Refresh failed.")
-                except AppleAPIError as e:
-                    show_apple_error(e)
                 except Exception as e:
-                    st.error(f"Unexpected error: {str(e)}")
+                    st.error(f"Error: {str(e)}")
+
+                # Fresh state check + cache update
+                new_state = get_app_store_state(selected_app_id, issuer_id, key_id, private_key)
+                st.session_state.app_store_state = new_state
+                app_store_state = new_state  # immediate update
+
                 sync_db_to_github()
-            # 2. Force re-check state after refresh
-            app_store_state = get_app_store_state(selected_app_id, issuer_id, key_id, private_key)
-            
-            # State message dikhaye (chahe sahi ho ya galat)
-            if app_store_state == "PREPARE_FOR_SUBMISSION":
-                st.success(f"App is now in **PREPARE_FOR_SUBMISSION** state! You can fetch or edit now.")
-            else:
-                st.warning(f"Still in '{app_store_state}' state. Needs to be PREPARE_FOR_SUBMISSION to edit or fetch data.")
-            
-            st.rerun()  # Important: UI ko fresh karne ke liye
+
+            st.rerun()
+
     with col_search:
         if st.button("Search iTunes"):
             st.session_state['show_itunes_search'] = True
+
+    # State status hamesha dikhao (top pe)
+    if app_store_state == "PREPARE_FOR_SUBMISSION":
+        st.success(f"App state: **PREPARE_FOR_SUBMISSION** → Editing and fetching allowed")
+    else:
+        st.error(f"App state: **{app_store_state or 'Unknown'}** → Editing and fetching blocked")
+        st.info("Enter the app into the 'Prepare for Submission' phase in App Store Connect.")
+
+    # Agar state sahi nahi hai → sirf refresh button dikhao, baaki sab hide
+    if app_store_state != "PREPARE_FOR_SUBMISSION":
+        st.markdown("---")
+        st.warning("**App must be in 'prepare_for_submission' state for data fetch/edit.**")
+        st.caption("You can check again with the refresh button when the state changes.")
+        st.stop()   # yeh line baaki editing area ko block kar degi
 
     st.caption(f"App ID: `{selected_app_id}`")
 
