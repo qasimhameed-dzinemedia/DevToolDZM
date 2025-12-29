@@ -21,8 +21,7 @@ from main import (
     upload_screenshots_dashboard,
     fetch_screenshots,
     sync_db_to_github,
-    AppleAPIError,
-    get_app_store_state
+    AppleAPIError
 )
 
 FIELD_LIMITS = {
@@ -1020,42 +1019,27 @@ def main():
     # -------------------------------
     # Title + Refresh + Search
     # -------------------------------
-    if 'app_editable' not in st.session_state or st.session_state.get('selected_app_id') != selected_app_id:
-        st.session_state['app_editable'] = False
-
-    # -------------------------------
-    # Title + Refresh + Search
-    # -------------------------------
     col_title, col_refresh, col_search = st.columns([3, 1, 1])
     with col_title:
         st.markdown(f"### {selected_app_name}")
     with col_refresh:
         if st.button("Refresh"):
-            with st.spinner("Checking app state..."):  # CHANGED: First check state
-                state = get_app_store_state(selected_app_id, issuer_id, key_id, private_key)
-                if state == "PREPARE_FOR_SUBMISSION":
-                    st.session_state['app_editable'] = True
-                    with st.spinner("Refreshing data..."):
-                        try:
-                            success = fetch_and_store_single_app(selected_app_id, selected_store_id, issuer_id, key_id, private_key)
-                            if success:
-                                st.success("Refreshed!")
-                            else:
-                                st.error("Refresh failed.")
-                        except AppleAPIError as e:
-                            show_apple_error(e)
-                        except Exception as e:
-                            st.error(f"Unexpected error: {str(e)}")
-                    sync_db_to_github()
-                    st.rerun()
-                else:
-                    st.session_state['app_editable'] = False
-                    st.warning(f"App is in '{state}' state. Cannot edit or fetch new data. Data will be hidden.")
+            with st.spinner("Refreshing…"):
+                try:
+                    success = fetch_and_store_single_app(selected_app_id, selected_store_id, issuer_id, key_id, private_key)
+                    if success:
+                        st.success("Refreshed!")
+                    else:
+                        st.error("Refresh failed.")
+                except AppleAPIError as e:
+                    show_apple_error(e)
+                except Exception as e:
+                    st.error(f"Unexpected error: {str(e)}")
+            sync_db_to_github()
+            st.rerun()
     with col_search:
         if st.button("Search iTunes"):
             st.session_state['show_itunes_search'] = True
-
-    st.caption(f"App ID: `{selected_app_id}`")
 
     st.caption(f"App ID: `{selected_app_id}`")
 
@@ -1113,429 +1097,426 @@ def main():
     # -------------------------------
     # Editing Area
     # -------------------------------
-    if not st.session_state['app_editable']:
-        st.warning("This app is not in 'PREPARE_FOR_SUBMISSION' state or has not been refreshed. Editing and data fetching are disabled. Please click 'Refresh' to check the state.")
-    else:
-        col_left, col_right = st.columns([1, 3])
+    col_left, col_right = st.columns([1, 3])
     
-        # Left COL
-        with col_left:
-            # ========================================
-            # 1. APP INFO ATTRIBUTES (No Platform)
-            # ========================================
-            app_info_attrs = ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']
-            emoji_info = {'name': '📛',
-                    'subtitle': '📝',
-                    'privacy_policy_url': '🔒',
-                    'privacy_choices_url': '⚙️'}
+    # Left COL
+    with col_left:
+        # ========================================
+        # 1. APP INFO ATTRIBUTES (No Platform)
+        # ========================================
+        app_info_attrs = ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']
+        emoji_info = {'name': '📛',
+                'subtitle': '📝',
+                'privacy_policy_url': '🔒',
+                'privacy_choices_url': '⚙️'}
 
-            for attr in app_info_attrs:
-                col_btn, col_sync = st.columns([3, 1])
-                with col_btn:
-                    if st.button(f"{emoji_info.get(attr, '')} {attr.replace('_', ' ').title()}", key=f"info_{attr}"):
-                        st.session_state['selected_attribute'] = attr
-                with col_sync:
-                    if st.button("Sync", key=f"sync_info_{attr}"):
-                        with st.spinner(f"Syncing {attr.replace('_', ' ')}..."):
-                            success = sync_attribute_data(
-                                attr, selected_app_id, selected_store_id,
-                                issuer_id, key_id, private_key,
-                                platform=None  # No platform
-                            )
-                            if success:
-                                st.success(f"{attr.replace('_', ' ').title()} synced!")
-                                sync_db_to_github()
-                                st.rerun()
-
-            # ========================================
-            # 2. APP VERSION ATTRIBUTES (Platform-Based)
-            # ========================================
-            version_attrs = ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']
-            emoji_version = {
-                    'description': '📖',
-                    'keywords': '🔍',
-                    'marketing_url': '📣',
-                    'promotional_text': '🎉',
-                    'support_url': '🛠️',
-                    'whats_new': '✨'
-            }
-
-            for attr in version_attrs:
-                col_btn, col_sync = st.columns([3, 1])
-                with col_btn:
-                    if st.button(f"{emoji_version.get(attr, '')} {attr.replace('_', ' ').title()}", key=f"version_{attr}"):
-                        st.session_state['selected_attribute'] = attr
-
-                with col_sync:
-                    platform = st.session_state.get('platform')
-                    if not platform:
-                        st.button("Sync", disabled=True, key=f"sync_version_{attr}_disabled")
-                    else:
-                        platform_name = "iOS" if platform == "IOS" else "macOS"
-                        if st.button(f"Sync", key=f"sync_version_{attr}"):
-                            with st.spinner(f"Syncing {attr.replace('_', ' ')} for {platform_name}..."):
-                                success = sync_attribute_data(
-                                    attr, selected_app_id, selected_store_id,
-                                    issuer_id, key_id, private_key,
-                                    platform=platform
-                                )
-                                if success:
-                                    st.success(f"{attr.replace('_', ' ').title()} synced for {platform_name}!")
-                                    sync_db_to_github()
-                                    st.rerun()
-
-            # ========================================
-            # 3. SCREENSHOTS (Platform-Based)
-            # ========================================
+        for attr in app_info_attrs:
             col_btn, col_sync = st.columns([3, 1])
             with col_btn:
-                if st.button("🖼️ Screenshots", key="attr_screenshots"):
-                    st.session_state['selected_attribute'] = 'screenshots'
+                if st.button(f"{emoji_info.get(attr, '')} {attr.replace('_', ' ').title()}", key=f"info_{attr}"):
+                    st.session_state['selected_attribute'] = attr
+            with col_sync:
+                if st.button("Sync", key=f"sync_info_{attr}"):
+                    with st.spinner(f"Syncing {attr.replace('_', ' ')}..."):
+                        success = sync_attribute_data(
+                            attr, selected_app_id, selected_store_id,
+                            issuer_id, key_id, private_key,
+                            platform=None  # No platform
+                        )
+                        if success:
+                            st.success(f"{attr.replace('_', ' ').title()} synced!")
+                            sync_db_to_github()
+                            st.rerun()
+
+        # ========================================
+        # 2. APP VERSION ATTRIBUTES (Platform-Based)
+        # ========================================
+        version_attrs = ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']
+        emoji_version = {
+                'description': '📖',
+                'keywords': '🔍',
+                'marketing_url': '📣',
+                'promotional_text': '🎉',
+                'support_url': '🛠️',
+                'whats_new': '✨'
+        }
+
+        for attr in version_attrs:
+            col_btn, col_sync = st.columns([3, 1])
+            with col_btn:
+                if st.button(f"{emoji_version.get(attr, '')} {attr.replace('_', ' ').title()}", key=f"version_{attr}"):
+                    st.session_state['selected_attribute'] = attr
 
             with col_sync:
                 platform = st.session_state.get('platform')
                 if not platform:
-                    st.button("Sync", disabled=True, key="sync_screenshots_disabled")
+                    st.button("Sync", disabled=True, key=f"sync_version_{attr}_disabled")
                 else:
                     platform_name = "iOS" if platform == "IOS" else "macOS"
-                    if st.button(f"Sync", key="sync_screenshots"):
-                        with st.spinner(f"Syncing screenshots for {platform_name}..."):
+                    if st.button(f"Sync", key=f"sync_version_{attr}"):
+                        with st.spinner(f"Syncing {attr.replace('_', ' ')} for {platform_name}..."):
                             success = sync_attribute_data(
-                                'screenshots',
-                                selected_app_id, selected_store_id,
+                                attr, selected_app_id, selected_store_id,
                                 issuer_id, key_id, private_key,
                                 platform=platform
                             )
                             if success:
-                                st.success(f"Screenshots synced for {platform_name}!")
+                                st.success(f"{attr.replace('_', ' ').title()} synced for {platform_name}!")
                                 sync_db_to_github()
                                 st.rerun()
 
-        # Right COL
-        with col_right:
-            attr = st.session_state.get('selected_attribute')
-            if attr and attr != 'screenshots':
-                platform = None
-                if attr in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']:
-                    platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select")
-                    st.session_state['platform'] = platform
-                    st.markdown("---")
+        # ========================================
+        # 3. SCREENSHOTS (Platform-Based)
+        # ========================================
+        col_btn, col_sync = st.columns([3, 1])
+        with col_btn:
+            if st.button("🖼️ Screenshots", key="attr_screenshots"):
+                st.session_state['selected_attribute'] = 'screenshots'
 
-                data, table = get_attribute_data(attr, selected_app_id, selected_store_id, platform)
-                if data.empty:
-                    st.warning(f"No data found for {attr.capitalize()}.")
-                else:
-                    st.markdown(f"#### Editing {attr.capitalize()} for {platform or 'App Info'}")
-                    st.markdown("---")
-                    changes = {}
-                    locales = data['locale'].tolist()
-
-                    source_text = st.text_area(
-                        "Source Text (English)", 
-                        value=st.session_state.get(f"source_text_{attr}", ""),
-                        placeholder="Write your text in English..." if attr not in ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url'] else "Enter URL...",
-                        height=100,
-                        key=f"source_input_{attr}"
-                    )
-                    st.session_state[f"source_text_{attr}"] = source_text
-
-                    # -------------------------------
-                    # TRANSLATE ALL (Field-Specific)
-                    # -------------------------------
-                    text_attrs = ['name', 'subtitle', 'description', 'keywords', 'promotional_text', 'whats_new']
-                    if attr in text_attrs:
-                        if st.button("Translate All"):
-                            if not source_text.strip():
-                                st.warning("Please write English text first.")
-                            else:
-                                with st.spinner("Translating all locales..."):
-                                    for _, row in data.iterrows():
-                                        loc_id = row["localization_id"]
-                                        locale = row["locale"]
-                                        input_key = f"edit_{loc_id}"
-
-                                        translated = translate_text(source_text, locale)
-                                        if attr == "keywords":
-                                            translated = translated.replace(", ", ",").replace(" ،", "،").replace(" , ", ",").replace(" ، ", "،")
-                                        st.session_state[input_key] = translated
-
-                                        time.sleep(1)
-                                st.success("All locales translated successfully!")
-                                st.rerun()
-
-                    # -------------------------------
-                    # FILL ALL LOCALES (URL + Keywords)
-                    # -------------------------------
-                    url_attrs = ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']
-                    fillable_attrs = url_attrs + ['keywords']  # Add keywords to fillable attributes
-
-                    if attr in fillable_attrs:
-                        if st.button("Fill All Locales"):
-                            if not source_text.strip():
-                                warning_msg = "Please enter a URL first." if attr in url_attrs else "Please enter keywords first."
-                                st.warning(warning_msg)
-                            else:
-                                with st.spinner(f"Filling all locales with {'URL' if attr in url_attrs else 'keywords'}..."):
-                                    for _, row in data.iterrows():
-                                        loc_id = row["localization_id"]
-                                        input_key = f"edit_{loc_id}"
-                                        
-                                        if attr == "keywords":
-                                            # Clean up keywords (remove extra spaces around commas)
-                                            cleaned_text = source_text.strip()
-                                            cleaned_text = re.sub(r',\s*,\s*', ',', cleaned_text)  # Remove double commas
-                                            cleaned_text = re.sub(r'\s*,\s*', ',', cleaned_text)  # Normalize spaces around commas
-                                            st.session_state[input_key] = cleaned_text
-                                        else:
-                                            # For URLs, just use the text as-is
-                                            st.session_state[input_key] = source_text.strip()
-
-                                action_msg = "URL" if attr in url_attrs else "keywords"
-                                st.success(f"All {len(locales)} locales filled with the same {action_msg}!")
-                                st.rerun()
-                                                
-                    st.markdown("---")
-                    # url_attrs = ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']
-                    # if attr in url_attrs:
-                    #     if st.button("Fill All Locales"):
-                    #         if not source_text.strip():
-                    #             st.warning("Please enter a URL first.")
-                    #         else:
-                    #             for _, row in data.iterrows():
-                    #                 loc_id = row["localization_id"]
-                    #                 input_key = f"edit_{loc_id}"
-
-                    #                 st.session_state[input_key] = source_text.strip()
-
-                    #             st.success(f"All {len(locales)} locales filled with the same URL!")
-                    #             st.rerun()
-                                
-                    # st.markdown("---")
-
-                    for _, row in data.iterrows():
-                        loc_id = row["localization_id"]
-                        locale = row["locale"]
-                        current_val = row[attr] or ""
-                        val = st.session_state.get(f"auto_{attr}_{locale}", current_val)
-                        limit = FIELD_LIMITS.get(attr)
-                        is_url = attr.endswith("_url") or attr == "keywords"
-                        height = 160 if attr in ["description", "promotional_text", "whats_new"] else 80
-                        input_key = f"edit_{loc_id}"
-
-                        full_name = locale_names.get(locale.upper(), locale)   # fallback to code if missing
-                        label = f"{locale.upper()} – {full_name}"
-
-                        if is_url:
-                            user_text = st.text_input(label, value=val, key=input_key)
-                        else:
-                            user_text = st.text_area(label, value=val, key=input_key, height=height)
-
-                        if limit and len(user_text) > limit:
-                            st.error(f"Warning: Limit: **{limit}** chars | You have: **{len(user_text)}** (+{len(user_text) - limit} extra)")
-                        elif limit:
-                            st.caption(f"{len(user_text)} / {limit} characters")
-
-                        changes[loc_id] = user_text or None
-                        st.markdown("---")
-
-                    save_key = f"save_changes_{attr}_{selected_app_id}"
-                    exceeded = [
-                        f"{data[data['localization_id'] == loc_id]['locale'].iloc[0].upper()} ({len(val)} > {FIELD_LIMITS[attr]})"
-                        for loc_id, val in changes.items()
-                        if val and FIELD_LIMITS.get(attr) and len(val) > FIELD_LIMITS[attr]
-                    ]
-
-                    if exceeded:
-                        st.error(f"Cannot save! Fix {len(exceeded)} field(s) exceeding limit:\n" + ", ".join(exceeded))
-                        st.button("Save Changes", disabled=True, key=f"{save_key}_disabled")
-                    else:
-                        if st.button("Save Changes", key=save_key):
-                            with st.spinner("Saving..."):
-                                success = True
-                                for loc_id, val in changes.items():
-                                    func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
-                                    try:
-                                        if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
-                                            success = False
-                                    except AppleAPIError as e:
-                                        show_apple_error(e)
-                                        success = False
-                                    except Exception as e:
-                                        st.error(f"Unexpected error: {str(e)}")
-                                        success = False
-                                
-                                if success:
-                                    st.success("Saved successfully!")
-
-                                    # 1. Sync DB with App Store (pull latest)
-                                    with st.spinner("Syncing latest data from App Store..."):
-                                        sync_attribute_data(
-                                            attr, selected_app_id, selected_store_id,
-                                            issuer_id, key_id, private_key, platform
-                                        )
-
-                                    # 2. Push DB to GitHub
-                                    with st.spinner("Pushing to GitHub..."):
-                                        sync_db_to_github()
-
-                                    # 3. Clear auto-fill
-                                    for loc in locales:
-                                        auto_key = f"auto_{attr}_{loc}"
-                                        if auto_key in st.session_state:
-                                            del st.session_state[auto_key]
-                                else:
-                                    st.error("Save failed.")
-                                st.rerun()
-
-            if attr == 'screenshots':
-                platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select_screenshots")
-                st.session_state['platform'] = platform
+        with col_sync:
+            platform = st.session_state.get('platform')
+            if not platform:
+                st.button("Sync", disabled=True, key="sync_screenshots_disabled")
+            else:
                 platform_name = "iOS" if platform == "IOS" else "macOS"
+                if st.button(f"Sync", key="sync_screenshots"):
+                    with st.spinner(f"Syncing screenshots for {platform_name}..."):
+                        success = sync_attribute_data(
+                            'screenshots',
+                            selected_app_id, selected_store_id,
+                            issuer_id, key_id, private_key,
+                            platform=platform
+                        )
+                        if success:
+                            st.success(f"Screenshots synced for {platform_name}!")
+                            sync_db_to_github()
+                            st.rerun()
+
+    # Right COL
+    with col_right:
+        attr = st.session_state.get('selected_attribute')
+        if attr and attr != 'screenshots':
+            platform = None
+            if attr in ['description', 'keywords', 'marketing_url', 'promotional_text', 'support_url', 'whats_new']:
+                platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select")
+                st.session_state['platform'] = platform
                 st.markdown("---")
 
-                # --- Tabs: View | Upload ---
-                tab_view, tab_upload = st.tabs(["View Screenshots", "Upload / Replace"])
+            data, table = get_attribute_data(attr, selected_app_id, selected_store_id, platform)
+            if data.empty:
+                st.warning(f"No data found for {attr.capitalize()}.")
+            else:
+                st.markdown(f"#### Editing {attr.capitalize()} for {platform or 'App Info'}")
+                st.markdown("---")
+                changes = {}
+                locales = data['locale'].tolist()
 
-                # =================================================================
-                # TAB 1: VIEW (Existing + Refresh)
-                # =================================================================
-                with tab_view:
-                    df = load_screenshots(selected_app_id, selected_store_id, platform)
-                    if df.empty:
-                        st.info(f"No screenshots found for {platform_name}.")
+                source_text = st.text_area(
+                    "Source Text (English)", 
+                    value=st.session_state.get(f"source_text_{attr}", ""),
+                    placeholder="Write your text in English..." if attr not in ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url'] else "Enter URL...",
+                    height=100,
+                    key=f"source_input_{attr}"
+                )
+                st.session_state[f"source_text_{attr}"] = source_text
+
+                # -------------------------------
+                # TRANSLATE ALL (Field-Specific)
+                # -------------------------------
+                text_attrs = ['name', 'subtitle', 'description', 'keywords', 'promotional_text', 'whats_new']
+                if attr in text_attrs:
+                    if st.button("Translate All"):
+                        if not source_text.strip():
+                            st.warning("Please write English text first.")
+                        else:
+                            with st.spinner("Translating all locales..."):
+                                for _, row in data.iterrows():
+                                    loc_id = row["localization_id"]
+                                    locale = row["locale"]
+                                    input_key = f"edit_{loc_id}"
+
+                                    translated = translate_text(source_text, locale)
+                                    if attr == "keywords":
+                                        translated = translated.replace(", ", ",").replace(" ،", "،").replace(" , ", ",").replace(" ، ", "،")
+                                    st.session_state[input_key] = translated
+
+                                    time.sleep(1)
+                            st.success("All locales translated successfully!")
+                            st.rerun()
+
+                # -------------------------------
+                # FILL ALL LOCALES (URL + Keywords)
+                # -------------------------------
+                url_attrs = ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']
+                fillable_attrs = url_attrs + ['keywords']  # Add keywords to fillable attributes
+
+                if attr in fillable_attrs:
+                    if st.button("Fill All Locales"):
+                        if not source_text.strip():
+                            warning_msg = "Please enter a URL first." if attr in url_attrs else "Please enter keywords first."
+                            st.warning(warning_msg)
+                        else:
+                            with st.spinner(f"Filling all locales with {'URL' if attr in url_attrs else 'keywords'}..."):
+                                for _, row in data.iterrows():
+                                    loc_id = row["localization_id"]
+                                    input_key = f"edit_{loc_id}"
+                                    
+                                    if attr == "keywords":
+                                        # Clean up keywords (remove extra spaces around commas)
+                                        cleaned_text = source_text.strip()
+                                        cleaned_text = re.sub(r',\s*,\s*', ',', cleaned_text)  # Remove double commas
+                                        cleaned_text = re.sub(r'\s*,\s*', ',', cleaned_text)  # Normalize spaces around commas
+                                        st.session_state[input_key] = cleaned_text
+                                    else:
+                                        # For URLs, just use the text as-is
+                                        st.session_state[input_key] = source_text.strip()
+
+                            action_msg = "URL" if attr in url_attrs else "keywords"
+                            st.success(f"All {len(locales)} locales filled with the same {action_msg}!")
+                            st.rerun()
+                                            
+                st.markdown("---")
+                # url_attrs = ['privacy_policy_url', 'privacy_choices_url', 'marketing_url', 'support_url']
+                # if attr in url_attrs:
+                #     if st.button("Fill All Locales"):
+                #         if not source_text.strip():
+                #             st.warning("Please enter a URL first.")
+                #         else:
+                #             for _, row in data.iterrows():
+                #                 loc_id = row["localization_id"]
+                #                 input_key = f"edit_{loc_id}"
+
+                #                 st.session_state[input_key] = source_text.strip()
+
+                #             st.success(f"All {len(locales)} locales filled with the same URL!")
+                #             st.rerun()
+                            
+                # st.markdown("---")
+
+                for _, row in data.iterrows():
+                    loc_id = row["localization_id"]
+                    locale = row["locale"]
+                    current_val = row[attr] or ""
+                    val = st.session_state.get(f"auto_{attr}_{locale}", current_val)
+                    limit = FIELD_LIMITS.get(attr)
+                    is_url = attr.endswith("_url") or attr == "keywords"
+                    height = 160 if attr in ["description", "promotional_text", "whats_new"] else 80
+                    input_key = f"edit_{loc_id}"
+
+                    full_name = locale_names.get(locale.upper(), locale)   # fallback to code if missing
+                    label = f"{locale.upper()} – {full_name}"
+
+                    if is_url:
+                        user_text = st.text_input(label, value=val, key=input_key)
                     else:
-                        for locale, loc_group in df.groupby('locale'):
-                            full_name = locale_names.get(locale.upper(), locale)
-                            with st.expander(f"{locale.upper()} – {full_name}", expanded=False):
-                                for disp_type, disp_group in loc_group.groupby('display_type'):
-                                    clean_name = disp_type.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').title()
-                                    count = len(disp_group)
-                                    st.markdown(f"**{clean_name}** ({count} screenshot{'' if count == 1 else 's'})")
-                                    cols = st.columns(4)
-                                    for idx, row in enumerate(disp_group.itertuples()):
-                                        with cols[idx % 4]:
-                                            st.image(row.url, use_column_width=True, caption=f"{row.width}×{row.height}")
-                                    st.markdown("---")
+                        user_text = st.text_area(label, value=val, key=input_key, height=height)
 
-                # =================================================================
-                # TAB 2: UPLOAD ALL LOCALES AT ONCE
-                # =================================================================
-                with tab_upload:
-                    platform = st.session_state.get('platform')
-                    if not platform:
-                        st.warning("Please select a platform first.")
-                        st.stop()
+                    if limit and len(user_text) > limit:
+                        st.error(f"Warning: Limit: **{limit}** chars | You have: **{len(user_text)}** (+{len(user_text) - limit} extra)")
+                    elif limit:
+                        st.caption(f"{len(user_text)} / {limit} characters")
 
-                    conn = get_db_connection()
-                    query = """
-                        SELECT DISTINCT locale 
-                        FROM app_version_localizations 
-                        WHERE app_id = ? AND store_id = ? AND platform = ?
-                        ORDER BY locale
-                    """
-                    df = pd.read_sql_query(query, conn, params=(selected_app_id, selected_store_id, platform))
-                    conn.close()
-                    locales = df['locale'].tolist()
-                    if not locales:
-                        st.warning(f"No version localizations found for { 'iOS' if platform == 'IOS' else 'macOS' }. Please sync version data first.")
-                        st.stop()
+                    changes[loc_id] = user_text or None
+                    st.markdown("---")
 
-                    # Store selections
-                    if "screenshot_selections" not in st.session_state:
-                        st.session_state.screenshot_selections = {}
+                save_key = f"save_changes_{attr}_{selected_app_id}"
+                exceeded = [
+                    f"{data[data['localization_id'] == loc_id]['locale'].iloc[0].upper()} ({len(val)} > {FIELD_LIMITS[attr]})"
+                    for loc_id, val in changes.items()
+                    if val and FIELD_LIMITS.get(attr) and len(val) > FIELD_LIMITS[attr]
+                ]
 
-                    upload_data = []
+                if exceeded:
+                    st.error(f"Cannot save! Fix {len(exceeded)} field(s) exceeding limit:\n" + ", ".join(exceeded))
+                    st.button("Save Changes", disabled=True, key=f"{save_key}_disabled")
+                else:
+                    if st.button("Save Changes", key=save_key):
+                        with st.spinner("Saving..."):
+                            success = True
+                            for loc_id, val in changes.items():
+                                func = patch_app_info_localization if 'app_info' in table else patch_app_store_version_localization
+                                try:
+                                    if not func(loc_id, {attr: val}, issuer_id, key_id, private_key):
+                                        success = False
+                                except AppleAPIError as e:
+                                    show_apple_error(e)
+                                    success = False
+                                except Exception as e:
+                                    st.error(f"Unexpected error: {str(e)}")
+                                    success = False
+                            
+                            if success:
+                                st.success("Saved successfully!")
 
-                    for locale in sorted(locales):
+                                # 1. Sync DB with App Store (pull latest)
+                                with st.spinner("Syncing latest data from App Store..."):
+                                    sync_attribute_data(
+                                        attr, selected_app_id, selected_store_id,
+                                        issuer_id, key_id, private_key, platform
+                                    )
+
+                                # 2. Push DB to GitHub
+                                with st.spinner("Pushing to GitHub..."):
+                                    sync_db_to_github()
+
+                                # 3. Clear auto-fill
+                                for loc in locales:
+                                    auto_key = f"auto_{attr}_{loc}"
+                                    if auto_key in st.session_state:
+                                        del st.session_state[auto_key]
+                            else:
+                                st.error("Save failed.")
+                            st.rerun()
+
+        if attr == 'screenshots':
+            platform = st.selectbox("Platform", ["IOS", "MAC_OS"], key="platform_select_screenshots")
+            st.session_state['platform'] = platform
+            platform_name = "iOS" if platform == "IOS" else "macOS"
+            st.markdown("---")
+
+            # --- Tabs: View | Upload ---
+            tab_view, tab_upload = st.tabs(["View Screenshots", "Upload / Replace"])
+
+            # =================================================================
+            # TAB 1: VIEW (Existing + Refresh)
+            # =================================================================
+            with tab_view:
+                df = load_screenshots(selected_app_id, selected_store_id, platform)
+                if df.empty:
+                    st.info(f"No screenshots found for {platform_name}.")
+                else:
+                    for locale, loc_group in df.groupby('locale'):
                         full_name = locale_names.get(locale.upper(), locale)
-                        with st.expander(f"{locale.upper()} – {full_name}", expanded=True):
-                            col1, col2 = st.columns([2, 2])
-                            with col1:
-                                display_type = st.selectbox(
-                                    "Display Type",
-                                    options=DISPLAY_TYPES[platform],
-                                    format_func=lambda x: x.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').replace('APP_', '').title(),
-                                    key=f"display_{locale}_{platform}"
-                                )
-                            with col2:
-                                action = st.radio(
-                                    "Action",
-                                    ["POST (Add New)", "UPDATE (Replace All)"],
-                                    horizontal=True,
-                                    key=f"action_{locale}_{platform}"
-                                )
+                        with st.expander(f"{locale.upper()} – {full_name}", expanded=False):
+                            for disp_type, disp_group in loc_group.groupby('display_type'):
+                                clean_name = disp_type.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').title()
+                                count = len(disp_group)
+                                st.markdown(f"**{clean_name}** ({count} screenshot{'' if count == 1 else 's'})")
+                                cols = st.columns(4)
+                                for idx, row in enumerate(disp_group.itertuples()):
+                                    with cols[idx % 4]:
+                                        st.image(row.url, use_column_width=True, caption=f"{row.width}×{row.height}")
+                                st.markdown("---")
 
-                            uploaded_files = st.file_uploader(
-                                f"Upload screenshots for {display_type.replace('_', ' ').title()} ({', '.join([f'{w}×{h}' for w,h in VALID_SIZES[display_type]])})",
-                                type=['png', 'jpg', 'jpeg'],
-                                accept_multiple_files=True,
-                                key=f"uploader_{locale}_{platform}_{display_type}"
+            # =================================================================
+            # TAB 2: UPLOAD ALL LOCALES AT ONCE
+            # =================================================================
+            with tab_upload:
+                platform = st.session_state.get('platform')
+                if not platform:
+                    st.warning("Please select a platform first.")
+                    st.stop()
+
+                conn = get_db_connection()
+                query = """
+                    SELECT DISTINCT locale 
+                    FROM app_version_localizations 
+                    WHERE app_id = ? AND store_id = ? AND platform = ?
+                    ORDER BY locale
+                """
+                df = pd.read_sql_query(query, conn, params=(selected_app_id, selected_store_id, platform))
+                conn.close()
+                locales = df['locale'].tolist()
+                if not locales:
+                    st.warning(f"No version localizations found for { 'iOS' if platform == 'IOS' else 'macOS' }. Please sync version data first.")
+                    st.stop()
+
+                # Store selections
+                if "screenshot_selections" not in st.session_state:
+                    st.session_state.screenshot_selections = {}
+
+                upload_data = []
+
+                for locale in sorted(locales):
+                    full_name = locale_names.get(locale.upper(), locale)
+                    with st.expander(f"{locale.upper()} – {full_name}", expanded=True):
+                        col1, col2 = st.columns([2, 2])
+                        with col1:
+                            display_type = st.selectbox(
+                                "Display Type",
+                                options=DISPLAY_TYPES[platform],
+                                format_func=lambda x: x.replace('_', ' ').replace('IPHONE', 'iPhone').replace('IPAD', 'iPad').replace('APP_', '').title(),
+                                key=f"display_{locale}_{platform}"
+                            )
+                        with col2:
+                            action = st.radio(
+                                "Action",
+                                ["POST (Add New)", "UPDATE (Replace All)"],
+                                horizontal=True,
+                                key=f"action_{locale}_{platform}"
                             )
 
-                            valid_files = []
-                            if uploaded_files:
-                                for file in uploaded_files:
-                                    try:
-                                        img = Image.open(file)
-                                        w, h = img.size
-                                        if (w, h) not in VALID_SIZES[display_type] and (h, w) not in VALID_SIZES[display_type]:
-                                            st.error(f"{file.name}: Wrong size → {w}×{h}")
-                                            continue
-                                        valid_files.append((file.name, file.getvalue(), img.format.lower()))
-                                    except Exception:
-                                        st.error(f"{file.name}: Corrupted image")
+                        uploaded_files = st.file_uploader(
+                            f"Upload screenshots for {display_type.replace('_', ' ').title()} ({', '.join([f'{w}×{h}' for w,h in VALID_SIZES[display_type]])})",
+                            type=['png', 'jpg', 'jpeg'],
+                            accept_multiple_files=True,
+                            key=f"uploader_{locale}_{platform}_{display_type}"
+                        )
 
-                                if valid_files:
-                                    st.success(f"{len(valid_files)} valid file(s) ready")
+                        valid_files = []
+                        if uploaded_files:
+                            for file in uploaded_files:
+                                try:
+                                    img = Image.open(file)
+                                    w, h = img.size
+                                    if (w, h) not in VALID_SIZES[display_type] and (h, w) not in VALID_SIZES[display_type]:
+                                        st.error(f"{file.name}: Wrong size → {w}×{h}")
+                                        continue
+                                    valid_files.append((file.name, file.getvalue(), img.format.lower()))
+                                except Exception:
+                                    st.error(f"{file.name}: Corrupted image")
 
-                            # Save selection for final upload
                             if valid_files:
-                                upload_data.append({
-                                    "locale": locale,
-                                    "display_type": display_type,
-                                    "action": "UPDATE" if "UPDATE" in action else "POST",
-                                    "files": valid_files
-                                })
+                                st.success(f"{len(valid_files)} valid file(s) ready")
 
-                    st.markdown("---")
-                    if st.button("Upload Screenshots"):
-                        if not upload_data:
-                            st.error("No screenshots selected!")
-                        else:
-                            with st.spinner(f"Uploading {sum(len(d['files']) for d in upload_data)} screenshots..."):
-                                all_success = True
-                                for item in upload_data:
-                                    try:
-                                        success = upload_screenshots_dashboard(
-                                            issuer_id=issuer_id,
-                                            key_id=key_id,
-                                            private_key=private_key,
-                                            app_id=selected_app_id,
-                                            locale=item["locale"],
-                                            platform=platform,
-                                            display_type=item["display_type"],
-                                            action=item["action"],
-                                            files=[(f[0], f[1], f[2]) for f in item["files"]]
-                                        )
-                                        if not success:
-                                            st.error(f"Failed → {item['locale']} – {item['display_type']}")
-                                            all_success = False
-                                    except AppleAPIError as e:
-                                        show_apple_error(e)
-                                        all_success = False
-                                    except Exception as e:
-                                        st.error(f"Unexpected error during upload: {str(e)}")
-                                        all_success = False
-                                    else:
-                                        st.success(f"Uploaded → {item['locale']} – {item['display_type']} ({len(item['files'])})")
+                        # Save selection for final upload
+                        if valid_files:
+                            upload_data.append({
+                                "locale": locale,
+                                "display_type": display_type,
+                                "action": "UPDATE" if "UPDATE" in action else "POST",
+                                "files": valid_files
+                            })
 
-                                if all_success:
-                                    st.success("Screenshots uploaded successfully!")
-                                    fetch_screenshots(selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform=platform)
-                                    sync_db_to_github()
-                                    st.rerun()
+                st.markdown("---")
+                if st.button("Upload Screenshots"):
+                    if not upload_data:
+                        st.error("No screenshots selected!")
+                    else:
+                        with st.spinner(f"Uploading {sum(len(d['files']) for d in upload_data)} screenshots..."):
+                            all_success = True
+                            for item in upload_data:
+                                try:
+                                    success = upload_screenshots_dashboard(
+                                        issuer_id=issuer_id,
+                                        key_id=key_id,
+                                        private_key=private_key,
+                                        app_id=selected_app_id,
+                                        locale=item["locale"],
+                                        platform=platform,
+                                        display_type=item["display_type"],
+                                        action=item["action"],
+                                        files=[(f[0], f[1], f[2]) for f in item["files"]]
+                                    )
+                                    if not success:
+                                        st.error(f"Failed → {item['locale']} – {item['display_type']}")
+                                        all_success = False
+                                except AppleAPIError as e:
+                                    show_apple_error(e)
+                                    all_success = False
+                                except Exception as e:
+                                    st.error(f"Unexpected error during upload: {str(e)}")
+                                    all_success = False
                                 else:
-                                    st.error("Upload failed.")
+                                    st.success(f"Uploaded → {item['locale']} – {item['display_type']} ({len(item['files'])})")
+
+                            if all_success:
+                                st.success("Screenshots uploaded successfully!")
+                                fetch_screenshots(selected_app_id, selected_store_id, issuer_id, key_id, private_key, platform=platform)
+                                sync_db_to_github()
+                                st.rerun()
+                            else:
+                                st.error("Upload failed.")
 
     st.markdown("---")
     st.markdown(
