@@ -277,31 +277,6 @@ def get_app_store_state(app_id, issuer_id, key_id, private_key):
     
     return None
 
-# -------------------------------
-# Fetch App Info
-# -------------------------------
-# def fetch_app_info(app_id, issuer_id, key_id, private_key, fields=None):
-#     print(f"Fetching app info for app ID {app_id}...")
-#     token = generate_jwt(issuer_id, key_id, private_key)
-#     if not token:
-#         print("JWT generation failed.")
-#         return None
-
-#     params = {}
-#     if fields:
-#         params["fields[appInfos]"] = ",".join(fields)
-
-#     url = f"{BASE_URL}/apps/{app_id}/appInfos"
-#     if params:
-#         url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
-
-#     print(f"GET: {url}")
-#     data = get(url, token)
-#     if data:
-#         count = len(data.get("data", []))
-#         print(f"Fetched {count} app info record(s).")
-#     sync_db_to_github()
-#     return data
 def fetch_app_info(app_id, issuer_id, key_id, private_key, fields=None):
     print(f"Fetching app info for app ID {app_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
