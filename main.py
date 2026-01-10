@@ -39,7 +39,6 @@ def load_db_from_github():
         print(f"⚠️ Could not load DB from GitHub: {res.text}")
 
 def sync_db_to_github():
-    """Uploads or updates the latest database file to GitHub repo."""
     token = st.secrets["GITHUB_TOKEN"]
     repo = st.secrets["REPO"]
     db_path = st.secrets["DB_PATH"]
@@ -50,22 +49,24 @@ def sync_db_to_github():
         "Accept": "application/vnd.github.v3+json"
     }
 
-    # 🧠 Safety check: don't push if DB file is empty or missing
     if not os.path.exists(db_path) or os.path.getsize(db_path) < 1000:
-        print(f"⚠️ Database file '{db_path}' seems empty or missing — skipping GitHub sync.")
+        print(f"⚠️ DB empty/missing – skip sync.")
         return
 
     with open(db_path, "rb") as f:
         content = base64.b64encode(f.read()).decode()
 
-    # Get existing file SHA (needed for update)
+    # ALWAYS fetch latest SHA before PUT (to avoid 409)
     get_res = requests.get(api_url, headers=headers)
+    sha = None
     if get_res.status_code == 200:
-        sha = get_res.json()["sha"]
-        print("🔁 Updating existing DB on GitHub...")
+        sha = get_res.json().get("sha")
+        print("🔁 Latest SHA fetched for update.")
+    elif get_res.status_code == 404:
+        print("🆕 No file yet – creating new.")
     else:
-        sha = None
-        print("🆕 Creating new DB file on GitHub...")
+        print(f"❌ SHA fetch failed: {get_res.text}")
+        return
 
     data = {
         "message": "Auto-sync database update",
@@ -77,9 +78,9 @@ def sync_db_to_github():
 
     res = requests.put(api_url, headers=headers, json=data)
     if res.status_code in [200, 201]:
-        print("✅ Database synced to GitHub successfully!")
+        print("✅ DB synced!")
     else:
-        print("❌ Failed to sync DB:", res.text)
+        print(f"❌ Sync failed: {res.text}")
 
 
 
