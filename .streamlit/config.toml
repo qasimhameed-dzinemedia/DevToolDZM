@@ -1,3 +1,0 @@
-[server]
-websocketPingInterval = 10
-websocketPingTimeout = 30
