@@ -257,8 +257,8 @@ def fetch_all_apps(issuer_id, key_id, private_key):
     return apps
 
 def get_app_store_state(app_id, issuer_id, key_id, private_key):
-    """Fetches the current appStoreState for the app without filtering."""
-    print(f"Fetching app store state for app ID {app_id}...")
+    """Fetches the current appStoreState for the App Info without filtering."""
+    print(f"Fetching app info state for app ID {app_id}...")
     token = generate_jwt(issuer_id, key_id, private_key)
     if not token:
         print("JWT generation failed.")
@@ -274,7 +274,36 @@ def get_app_store_state(app_id, issuer_id, key_id, private_key):
     if raw_data["data"]:
         # Select the same index as in fetch_app_info (1 if >1 records, else 0)
         index = 1 if len(raw_data["data"]) > 1 else 0
-        return raw_data["data"][index].get("attributes", {}).get("appStoreState")
+        state = raw_data["data"][index].get("attributes", {}).get("appStoreState")
+        print(f"App info state: {state}")
+        return state
+    
+    return None
+
+def get_app_version_state(app_id, issuer_id, key_id, private_key, platform=None):
+    """Fetches the current appStoreState for the app version without filtering."""
+    print(f"Fetching app version state for app ID {app_id}...")
+    token = generate_jwt(issuer_id, key_id, private_key)
+    if not token:
+        print("JWT generation failed.")
+        return None
+
+    url = f"{BASE_URL}/apps/{app_id}/appStoreVersions"
+    if platform:
+        url += f"?filter[platform]={platform}"
+        
+    raw_data = get(url, token)
+    
+    if not raw_data or "data" not in raw_data:
+        print("No version data returned.")
+        return None
+
+    if raw_data["data"]:
+        # Usually we want the latest or the one being edited. 
+        # For simplicity, if platform is filtered, we take the first one returned by API.
+        state = raw_data["data"][0].get("attributes", {}).get("appStoreState")
+        print(f"App version state: {state}")
+        return state
     
     return None
 

@@ -21,7 +21,9 @@ from main import (
     upload_screenshots_dashboard,
     fetch_screenshots,
     sync_db_to_github,
-    AppleAPIError
+    AppleAPIError,
+    get_app_store_state,
+    get_app_version_state
 )
 
 FIELD_LIMITS = {
@@ -1205,6 +1207,20 @@ def main():
             data, table = get_attribute_data(attr, selected_app_id, selected_store_id, platform)
             if data.empty:
                 st.warning(f"No data found for {attr.capitalize()}.")
+                # Add state warning
+                with st.spinner("Checking app state..."):
+                    try:
+                        if attr in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
+                            current_state = get_app_store_state(selected_app_id, issuer_id, key_id, private_key)
+                        else:
+                            current_state = get_app_version_state(selected_app_id, issuer_id, key_id, private_key, platform)
+                        
+                        if current_state and current_state != "PREPARE_FOR_SUBMISSION":
+                            st.warning(f"{attr.replace('_', ' ').title()} is not in prepare for submission state, it is in {current_state} state")
+                        elif not current_state:
+                            st.info("Could not retrieve app state from Apple.")
+                    except Exception as e:
+                        st.error(f"Error checking state: {e}")
             else:
                 st.markdown(f"#### Editing {attr.capitalize()} for {platform or 'App Info'}")
                 st.markdown("---")
