@@ -22,7 +22,7 @@ from main import (
     fetch_screenshots,
     sync_db_to_github,
     AppleAPIError,
-    get_app_store_state,
+    get_app_info_state,
     get_app_version_state
 )
 
@@ -1211,7 +1211,7 @@ def main():
                 with st.spinner("Checking app state..."):
                     try:
                         if attr in ['name', 'subtitle', 'privacy_policy_url', 'privacy_choices_url']:
-                            current_state = get_app_store_state(selected_app_id, issuer_id, key_id, private_key)
+                            current_state = get_app_info_state(selected_app_id, issuer_id, key_id, private_key)
                         else:
                             current_state = get_app_version_state(selected_app_id, issuer_id, key_id, private_key, platform)
                         
